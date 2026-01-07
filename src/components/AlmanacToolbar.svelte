@@ -21,7 +21,13 @@
   <div class="left">
     <div class="title">pvzHE图鉴编辑器</div>
     <div class="chip">
-      {category === 'plant' ? '植物' : category === 'zombie' ? '僵尸' : '道具'}
+      {category === 'plant'
+        ? '植物'
+        : category === 'zombie'
+          ? '僵尸'
+          : category === 'shovel'
+            ? '铲子'
+            : '小推车'}
     </div>
   </div>
 

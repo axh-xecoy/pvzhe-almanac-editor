@@ -7,6 +7,14 @@
     value: string;
     onValueChange: (value: string) => void;
     mode?: 'text' | 'almanac';
+    fontSize?: number;
+    minHeight?: number;
+    onHeightChange?: (height: number) => void;
+    onReady?: (editor: any) => void;
+    showGutter?: boolean;
+    wrap?: boolean;
+    readOnly?: boolean;
+    showScrollbars?: boolean;
   };
 
   let props: Props = $props();
@@ -223,9 +231,53 @@
     setAceMode(nextMode);
   });
 
+  $effect(() => {
+    if (!aceEditor) return;
+    aceEditor.renderer?.setShowGutter?.(!!props.showGutter);
+  });
+
+  $effect(() => {
+    if (!aceEditor) return;
+    aceEditor.session?.setUseWrapMode?.(props.wrap ?? true);
+  });
+
+  $effect(() => {
+    if (!aceEditor) return;
+    aceEditor.setReadOnly?.(!!props.readOnly);
+  });
+
   onMount(() => {
     let disposed = false;
     let resizeObserver: ResizeObserver | null = null;
+    let heightRaf = 0;
+
+    const emitHeight = () => {
+      if (!aceEditor || disposed) return;
+      const cb = props.onHeightChange;
+      if (!cb) return;
+
+      const minHeight = Math.max(0, props.minHeight ?? 0);
+
+      try {
+        const screenLines = Math.max(1, Number(aceEditor.session?.getScreenLength?.() ?? 1));
+        const lineHeight = Math.max(1, Number(aceEditor.renderer?.lineHeight ?? 16));
+        const contentHeight = screenLines * lineHeight;
+        const shellPadding = 12;
+        const nextHeight = Math.ceil(Math.max(minHeight, contentHeight + shellPadding + 2));
+        cb(nextHeight);
+      } catch {
+        cb(Math.ceil(minHeight));
+      }
+    };
+
+    const scheduleEmitHeight = () => {
+      if (!props.onHeightChange) return;
+      if (heightRaf) cancelAnimationFrame(heightRaf);
+      heightRaf = requestAnimationFrame(() => {
+        heightRaf = 0;
+        emitHeight();
+      });
+    };
 
     const init = async () => {
       if (!container || disposed) return;
@@ -233,6 +285,7 @@
       const aceModule = await import('ace-builds/src-noconflict/ace');
       await import('ace-builds/src-noconflict/mode-text');
       await import('ace-builds/src-noconflict/ext-language_tools');
+      await import('ace-builds/src-noconflict/ext-searchbox');
 
       if (!container || disposed) return;
 
@@ -259,6 +312,7 @@
         enableSnippets: false,
         showPrintMargin: false,
         indentedSoftWrap: false,
+        fixedWidthGutter: true,
       });
       // Clear default completers to remove noise
       if (langTools) {
@@ -266,28 +320,37 @@
       }
 
       editor.setShowFoldWidgets(false);
-      editor.renderer.setShowGutter(false);
+      editor.renderer.setShowGutter(!!props.showGutter);
       editor.setHighlightActiveLine(false);
       editor.setHighlightGutterLine(false);
-      editor.session.setUseWrapMode(true);
+      editor.session.setUseWrapMode(props.wrap ?? true);
       setAceMode(getMode());
       editor.session.setUseWorker(false);
+      editor.setReadOnly(!!props.readOnly);
       lastMode = getMode();
 
       changeHandler = () => {
         if (unmounted || disposed || !aceEditor) return;
         const next = String(editor.getValue()).replace(/\r/g, '');
         props.onValueChange(next);
+        scheduleEmitHeight();
       };
 
       editor.on('change', changeHandler);
 
       setValue(String(props.value ?? '').replace(/\r/g, ''));
       editor.resize(true);
+      emitHeight();
+      scheduleEmitHeight();
+      try {
+        props.onReady?.(editor);
+      } catch {
+      }
 
       resizeObserver = new ResizeObserver(() => {
         if (!aceEditor || disposed) return;
         aceEditor.resize(true);
+        scheduleEmitHeight();
       });
       resizeObserver.observe(container);
     };
@@ -297,6 +360,8 @@
     return () => {
       disposed = true;
       unmounted = true;
+      if (heightRaf) cancelAnimationFrame(heightRaf);
+      heightRaf = 0;
       try {
         if (aceEditor) {
           if (changeHandler) aceEditor.off('change', changeHandler);
@@ -315,7 +380,10 @@
   });
 </script>
 
-<div class="shell">
+<div
+  class="shell {props.showScrollbars ? 'scrollbars' : ''}"
+  style={`--almanac-editor-font-size: ${(props.fontSize ?? 16)}px;`}
+>
   <div class="editor" bind:this={container}></div>
 </div>
 
@@ -375,6 +443,24 @@
     background: color-mix(in srgb, var(--bg-color) 55%, var(--dark-bg-color) 45%);
   }
 
+  :global(.editor .ace_gutter) {
+    background: color-mix(in srgb, var(--bg-color) 82%, white 18%);
+    color: color-mix(in srgb, var(--dark-bg-color) 68%, transparent);
+    border-right: 1px solid color-mix(in srgb, var(--dark-bg-color) 18%, transparent);
+  }
+
+  :global(.editor .ace_gutter-cell) {
+    background: transparent;
+    color: color-mix(in srgb, var(--dark-bg-color) 65%, transparent);
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  :global(.editor .ace_gutter-active-line) {
+    background: color-mix(in srgb, var(--bg-color) 70%, var(--dark-bg-color) 30%);
+    color: var(--dark-bg-color);
+  }
+
   :global(.editor *) {
     font-family:
       'Monaco',
@@ -383,7 +469,7 @@
       'Droid Sans Mono',
       'Consolas',
       monospace !important;
-    font-size: 16px !important;
+    font-size: var(--almanac-editor-font-size, 16px) !important;
     direction: ltr !important;
     text-align: left !important;
   }
@@ -425,8 +511,8 @@
   }
 
   :global(.ace_scrollbar::-webkit-scrollbar) {
-    width: 13px;
-    height: 13px;
+    width: 8px;
+    height: 8px;
     box-sizing: border-box;
   }
 
@@ -457,7 +543,7 @@
     background-color: color-mix(in srgb, var(--bg-color, #fdc689) 25%, white) !important;
   }
 
-  :global(.editor .ace_scrollbar) {
+  :global(.shell:not(.scrollbars) .editor .ace_scrollbar) {
     display: none !important;
   }
 

@@ -8,15 +8,49 @@
     selectedId: string;
     selectedPrefix: string;
     onSelect: (id: string, prefix: string) => void;
+    onAdd?: () => void;
+    addDisabled?: boolean;
   };
 
   let props: Props = $props();
 
   let search = $state('');
   let menuOpen = $state(false);
+  let sortDescending = $state(false);
   let buttonEl: HTMLButtonElement | null = $state(null);
   let menuEl: HTMLDivElement | null = $state(null);
+  let listEl: HTMLDivElement | null = $state(null);
   let searchInputEl: HTMLInputElement | null = $state(null);
+
+  function scrollToSelectedOption() {
+    if (!menuOpen) return;
+    if (!listEl) return;
+    const active = listEl.querySelector<HTMLElement>('.combo-option.active');
+    if (!active) {
+      listEl.scrollTop = 0;
+      return;
+    }
+
+    const paddingTop = Number.parseFloat(getComputedStyle(listEl).paddingTop) || 0;
+    const desiredTop = paddingTop + 2;
+    const targetTop = Math.max(0, active.offsetTop - desiredTop);
+    const maxScroll = Math.max(0, listEl.scrollHeight - listEl.clientHeight);
+    listEl.scrollTop = Math.min(targetTop, maxScroll);
+
+    const listRect = listEl.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const activeTop = activeRect.top - listRect.top;
+    if (activeTop < desiredTop - 1 || activeTop > desiredTop + 1) {
+      const next = Math.min(Math.max(0, listEl.scrollTop + (activeTop - desiredTop)), maxScroll);
+      listEl.scrollTop = next;
+    }
+  }
+
+  function scrollToFirstOption() {
+    if (!menuOpen) return;
+    if (!listEl) return;
+    listEl.scrollTop = 0;
+  }
 
   function getSelectedLabel() {
     const list = props.options;
@@ -32,7 +66,6 @@
     menuOpen = !menuOpen;
     if (menuOpen) {
       search = '';
-      void tick().then(() => searchInputEl?.focus());
     }
   }
 
@@ -40,6 +73,28 @@
     props.onSelect(nextId, nextPrefix);
     search = '';
     menuOpen = false;
+  }
+
+  function onAddClick() {
+    if (!props.onAdd) return;
+    menuOpen = false;
+    props.onAdd();
+  }
+
+  function toggleSort() {
+    sortDescending = !sortDescending;
+    if (menuOpen) void tick().then(scrollToFirstOption);
+  }
+
+  function getVisibleOptions() {
+    const q = search.trim().toLowerCase();
+    const filtered = props.options.filter((opt) => {
+      if (!q) return true;
+      const id = opt.id.toLowerCase();
+      const label = opt.label.toLowerCase();
+      return id.includes(q) || label.includes(q);
+    });
+    return sortDescending ? filtered.slice().reverse() : filtered;
   }
 
   onMount(() => {
@@ -67,57 +122,88 @@
       window.removeEventListener('keydown', onKeyDown);
     };
   });
+
+  $effect(() => {
+    if (!menuOpen) return;
+    void tick().then(() => {
+      if (!menuOpen) return;
+      searchInputEl?.focus();
+      scrollToSelectedOption();
+    });
+  });
 </script>
 
-<div class="combo {menuOpen ? 'open' : ''}">
-  <button
-    type="button"
-    class="combo-button"
-    bind:this={buttonEl}
-    onclick={toggleMenu}
-    disabled={!props.options.length}
-    aria-expanded={menuOpen}
-  >
-    <span class="combo-label">{getSelectedLabel()}</span>
-    <span class="combo-arrow">▾</span>
-  </button>
+<div class="combo-wrap">
+  <div class="combo {menuOpen ? 'open' : ''}">
+    <button
+      type="button"
+      class="combo-button"
+      bind:this={buttonEl}
+      onclick={toggleMenu}
+      disabled={!props.options.length}
+      aria-expanded={menuOpen}
+    >
+      <span class="combo-label">{getSelectedLabel()}</span>
+      <span class="combo-arrow">▾</span>
+    </button>
 
-  {#if menuOpen}
-    <div class="combo-menu" bind:this={menuEl}>
-      <div class="combo-search">
-        <input
-          class="combo-search-input"
-          bind:this={searchInputEl}
-          value={search}
-          oninput={(e) => (search = (e.target as HTMLInputElement).value)}
-          placeholder="搜索..."
-        />
-      </div>
-
-      <div class="combo-list">
-        {#each props.options.filter((opt) => {
-          const q = search.trim().toLowerCase();
-          if (!q) return true;
-          const id = opt.id.toLowerCase();
-          const label = opt.label.toLowerCase();
-          return id.includes(q) || label.includes(q);
-        }) as opt (opt.prefix + opt.id)}
+    {#if menuOpen}
+      <div class="combo-menu" bind:this={menuEl}>
+        <div class="combo-search">
+          <input
+            class="combo-search-input"
+            bind:this={searchInputEl}
+            value={search}
+            oninput={(e) => (search = (e.target as HTMLInputElement).value)}
+            placeholder="搜索..."
+          />
           <button
             type="button"
-            class="combo-option {opt.id === props.selectedId && opt.prefix === props.selectedPrefix ? 'active' : ''}"
-            onclick={() => selectOption(opt.id, opt.prefix)}
+            class="combo-sort"
+            onclick={toggleSort}
+            aria-label="切换排序"
+            aria-pressed={sortDescending}
+            title={sortDescending ? '倒序' : '正序'}
           >
-            {opt.label}
+            {sortDescending ? '↓' : '↑'}
           </button>
-        {/each}
+        </div>
+
+        <div class="combo-list" bind:this={listEl}>
+          {#each getVisibleOptions() as opt (opt.prefix + opt.id)}
+            <button
+              type="button"
+              class="combo-option {opt.id === props.selectedId && opt.prefix === props.selectedPrefix ? 'active' : ''}"
+              onclick={() => selectOption(opt.id, opt.prefix)}
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
+  </div>
+
+  <button
+    type="button"
+    class="combo-add"
+    onclick={onAddClick}
+    disabled={props.addDisabled}
+    aria-label="新增条目"
+  >
+    +
+  </button>
 </div>
 
 <style>
-  :where(.combo-button, .combo-option, .combo-search-input) {
+  :where(.combo-button, .combo-option, .combo-search-input, .combo-sort, .combo-add) {
     outline: none;
+  }
+
+  .combo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .combo {
@@ -181,10 +267,12 @@
 
   .combo-search {
     padding: 6px;
+    display: flex;
+    gap: 6px;
   }
 
   .combo-search-input {
-    width: 100%;
+    flex: 1;
     height: 32px;
     border-radius: 10px;
     border: 0;
@@ -208,6 +296,33 @@
 
   .combo-search-input::placeholder {
     color: color-mix(in srgb, var(--dark-bg-color) 45%, var(--bg-color));
+  }
+
+  .combo-sort {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    user-select: none;
+    color: color-mix(in srgb, var(--dark-bg-color) 62%, var(--bg-color));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    box-sizing: border-box;
+    font-size: 13px;
+    opacity: 0.75;
+  }
+
+  .combo-sort:hover {
+    background: color-mix(in srgb, var(--dark-bg-color) 10%, transparent);
+    opacity: 0.95;
+  }
+
+  .combo-sort:active {
+    background: color-mix(in srgb, var(--dark-bg-color) 14%, transparent);
   }
 
   .combo-list {
@@ -248,5 +363,30 @@
   .combo-option.active {
     background: var(--dark-bg-color);
     color: white;
+  }
+
+  .combo-add {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid var(--dark-bg-color);
+    background: var(--bg-color);
+    cursor: pointer;
+    user-select: none;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--dark-bg-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .combo-add:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bg-color) 82%, white 18%);
+  }
+
+  .combo-add:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 </style>

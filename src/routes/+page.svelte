@@ -1,20 +1,42 @@
 <script lang="ts">
-  import AlmanacCardPreview from '@component/AlmanacCardPreview.svelte';
-  import AlmanacEditorPanel from '@component/AlmanacEditorPanel.svelte';
-  import AlmanacEntrySelect from '@component/AlmanacEntrySelect.svelte';
-  import AlmanacToolbar from '@component/AlmanacToolbar.svelte';
+  import AlmanacModeScene from '@component/AlmanacModeScene.svelte';
+  import AlmanacPageFrame from '@component/AlmanacPageFrame.svelte';
+  import TextModeScene from '@component/TextModeScene.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import type { AlmanacFieldKey, LibraryCategory, LibrarySide } from '@util/almanacTypes';
+  import { stringifyCsv, parseCsv } from '@util/csvText';
+  import { rebuildKeyIndex, normalizeRowsByKey, getColumnIndex, getKeyColumnIndex } from '@util/csvTable';
+  import { fromCsvStoredValue, toCsvStoredValue } from '@util/csvStoredValue';
 
   let category: LibraryCategory = $state('plant');
   let previewSide: LibrarySide = $state('plant');
   let theme: 'default' | 'zombie' = $state('default');
   let lang: 'zh' | 'en' | 'es' = $state('zh');
   let csvPath: string | null = $state(null);
+  let csvText: string = $state('');
   let csvHeaders: string[] = $state([]);
   let csvRows: string[][] = $state([]);
   let keyToRow: Map<string, number> = $state(new Map());
+
+  let viewMode: 'almanac' | 'text' = $state('almanac');
+
+  function syncCsvTextFromTable() {
+    if (!csvHeaders.length) return;
+    csvText = stringifyCsv(csvHeaders, csvRows);
+  }
+
+  function applyCsvText(next: string) {
+    csvText = next;
+    if (csvPath) isDirty = true;
+    try {
+      const parsed = parseCsv(next);
+      csvHeaders = parsed.headers;
+      csvRows = normalizeRowsByKey(parsed.headers, parsed.rows);
+      keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
+    } catch {
+    }
+  }
 
   let entryId = $state('');
   let entryPrefix = $state('');
@@ -35,16 +57,22 @@
   > = {
     plant: { label: '植物', prefixes: ['TOWERDEFENSE_PLANT'], theme: 'default', previewSide: 'plant' },
     zombie: { label: '僵尸', prefixes: ['TOWERDEFENSE_ZOMBIE'], theme: 'zombie', previewSide: 'zombie' },
-    tool: { label: '道具', prefixes: ['TOWERDEFENSE_SHOVEL', 'TOWERDEFENSE_MOWER'], theme: 'default', previewSide: 'plant' },
+    shovel: { label: '铲子', prefixes: ['TOWERDEFENSE_SHOVEL'], theme: 'default', previewSide: 'plant' },
+    mower: { label: '小推车', prefixes: ['TOWERDEFENSE_MOWER'], theme: 'default', previewSide: 'plant' },
   };
   let selectionByCategory: Record<LibraryCategory, { id: string; prefix: string }> = $state({
     plant: { id: '', prefix: '' },
     zombie: { id: '', prefix: '' },
-    tool: { id: '', prefix: '' },
+    shovel: { id: '', prefix: '' },
+    mower: { id: '', prefix: '' },
   });
   let isDirty = $state(false);
   let closeConfirmOpen = $state(false);
   let allowWindowClose = $state(false);
+
+  let addDialogOpen = $state(false);
+  let addDialogId = $state('');
+  let addDialogPrefix = $state('');
 
   function changeCategory(next: LibraryCategory) {
     if (next === category) return;
@@ -52,6 +80,11 @@
       selectionByCategory = { ...selectionByCategory, [category]: { id: entryId, prefix: entryPrefix } };
     }
     category = next;
+  }
+
+  function getCategoryDefaultPrefix(next: LibraryCategory) {
+    const prefixes = getActivePrefixes(next);
+    return prefixes[0] ?? '';
   }
 
   onMount(() => {
@@ -85,139 +118,6 @@
     };
   });
 
-  function escapeCsvCell(value: string) {
-    const needsQuotes = /[",\r\n]/.test(value);
-    const next = value.replace(/"/g, '""');
-    return needsQuotes ? `"${next}"` : next;
-  }
-
-  function stringifyCsv(headers: string[], rows: string[][]) {
-    const out: string[] = [];
-    out.push(headers.map(escapeCsvCell).join(','));
-    for (const row of rows) out.push(row.map((c) => escapeCsvCell(c ?? '')).join(','));
-    return out.join('\r\n');
-  }
-
-  function parseCsv(text: string) {
-    text = text.replace(/^\uFEFF/, '');
-
-    const firstLineEnd = (() => {
-      const rn = text.indexOf('\r\n');
-      const n = text.indexOf('\n');
-      if (rn === -1) return n;
-      if (n === -1) return rn;
-      return Math.min(rn, n);
-    })();
-
-    const firstLine = firstLineEnd === -1 ? text : text.slice(0, firstLineEnd);
-    const delimiter = (() => {
-      const candidates = [',', '\t', ';'] as const;
-      let best: (typeof candidates)[number] = ',';
-      let bestCount = -1;
-      for (const c of candidates) {
-        const count = firstLine.split(c).length - 1;
-        if (count > bestCount) {
-          best = c;
-          bestCount = count;
-        }
-      }
-      return bestCount <= 0 ? ',' : best;
-    })();
-
-    const rows: string[][] = [];
-    let row: string[] = [];
-    let cell = '';
-    let i = 0;
-    let inQuotes = false;
-
-    const pushCell = () => {
-      row.push(cell);
-      cell = '';
-    };
-
-    const pushRow = () => {
-      rows.push(row);
-      row = [];
-    };
-
-    while (i < text.length) {
-      const ch = text[i];
-
-      if (inQuotes) {
-        if (ch === '"') {
-          const next = text[i + 1];
-          if (next === '"') {
-            cell += '"';
-            i += 2;
-            continue;
-          }
-          inQuotes = false;
-          i++;
-          continue;
-        }
-        cell += ch;
-        i++;
-        continue;
-      }
-
-      if (ch === '"') {
-        inQuotes = true;
-        i++;
-        continue;
-      }
-
-      if (ch === delimiter) {
-        pushCell();
-        i++;
-        continue;
-      }
-
-      if (ch === '\r') {
-        if (text[i + 1] === '\n') i++;
-        pushCell();
-        pushRow();
-        i++;
-        continue;
-      }
-
-      if (ch === '\n') {
-        pushCell();
-        pushRow();
-        i++;
-        continue;
-      }
-
-      cell += ch;
-      i++;
-    }
-
-    pushCell();
-    pushRow();
-
-    const rawHeaders = rows[0] ?? [];
-    const headers = rawHeaders.map((h) => String(h).replace(/^\uFEFF/, '').trim());
-    const body = rows.slice(1).filter((r) => r.some((c) => c.trim().length > 0));
-
-    const normalizedBody = body.map((r) => {
-      const next = r.slice();
-      while (next.length < headers.length) next.push('');
-      return next;
-    });
-
-    return { headers, rows: normalizedBody };
-  }
-
-  function rebuildKeyIndex(headers: string[], rows: string[][]) {
-    const keyIdx = getKeyColumnIndex(headers);
-    const map = new Map<string, number>();
-    if (keyIdx === -1) return map;
-    for (let i = 0; i < rows.length; i++) {
-      const key = rows[i][keyIdx] ?? '';
-      if (key) map.set(key, i);
-    }
-    return map;
-  }
-
   function normalizePrefix(prefix: string) {
     return prefix.endsWith('_') ? prefix : `${prefix}_`;
   }
@@ -226,48 +126,9 @@
     return FILTERS[nextCategory].prefixes.map(normalizePrefix);
   }
 
-  function normalizeHeader(value: string) {
-    return value.replace(/^\uFEFF/, '').trim().toLowerCase().replace(/-/g, '_');
-  }
-
-  function getKeyColumnIndex(headers: string[]) {
-    const direct = headers.indexOf('Key');
-    if (direct !== -1) return direct;
-    return headers.findIndex((h) => normalizeHeader(h) === 'key');
-  }
-
-  function getColumnIndex(headers: string[], nextLang: 'zh' | 'en' | 'es') {
-    const direct = headers.indexOf(nextLang);
-    if (direct !== -1) return direct;
-
-    const normalized = headers.map(normalizeHeader);
-    const target = normalizeHeader(nextLang);
-
-    const exact = normalized.indexOf(target);
-    if (exact !== -1) return exact;
-
-    const candidates: Record<'zh' | 'en' | 'es', string[]> = {
-      zh: ['zh_cn', 'zh_hans', 'zh_hant', 'cn', 'chinese', '中文'],
-      en: ['en_us', 'en_gb', 'english', '英文'],
-      es: ['es_es', 'spanish', 'espanol', 'español', '西班牙语'],
-    };
-
-    for (const c of candidates[nextLang]) {
-      const idx = normalized.indexOf(c);
-      if (idx !== -1) return idx;
-    }
-
-    const prefix = `${target}_`;
-    const startsWith = normalized.findIndex((h) => h === target || h.startsWith(prefix));
-    if (startsWith !== -1) return startsWith;
-
-    return -1;
-  }
-
   function getCsvValue(key: string, column: string) {
     let rowIdx = keyToRow.get(key);
     if (rowIdx === undefined) {
-      // Try to find key with trimmed whitespace
       const trimmed = key.trim();
       rowIdx = keyToRow.get(trimmed);
       if (rowIdx === undefined) return key;
@@ -288,11 +149,7 @@
   function getEditorValue(key: string, column: string) {
     const value = getCsvValue(key, column);
     if (value === key) return '';
-    return value.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
-  }
-
-  function toCsvStoredValue(value: string) {
-    return value.replace(/\r\n/g, '\n').replace(/\n/g, '\\n');
+    return fromCsvStoredValue(value);
   }
 
   function writeValue(key: string, value: string) {
@@ -306,6 +163,7 @@
       const nextRow = row.slice();
       nextRow[colIdx] = value;
       csvRows = csvRows.map((r, i) => (i === existing ? nextRow : r));
+      syncCsvTextFromTable();
       return;
     }
 
@@ -314,10 +172,14 @@
     nextRow[colIdx] = value;
     csvRows = [...csvRows, nextRow];
     keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
+    syncCsvTextFromTable();
   }
 
   function keyForField(id: string, field: AlmanacFieldKey, prefix: string) {
     return `${prefix}${id}_${field}`;
+  }
+  function keyExists(key: string) {
+    return keyToRow.has(key);
   }
 
   const FIELD_MASK: Record<AlmanacFieldKey, number> = {
@@ -348,13 +210,7 @@
       }
     }
 
-    const list = Array.from(entries.values())
-      .filter((e) => e.mask === FULL_MASK)
-      .sort((a, b) => {
-        const idCompare = a.id.localeCompare(b.id);
-        if (idCompare !== 0) return idCompare;
-        return a.prefix.localeCompare(b.prefix);
-      });
+    const list = Array.from(entries.values()).filter((e) => e.mask === FULL_MASK);
 
     return list.map(({ id, prefix }) => {
       const key = keyForField(id, 'NAME', prefix);
@@ -418,6 +274,78 @@
     return out;
   }
 
+  function openAddDialog() {
+    addDialogId = '';
+    const prefixes = getActivePrefixes(category);
+    addDialogPrefix = entryPrefix && prefixes.includes(entryPrefix) ? entryPrefix : prefixes[0] ?? '';
+    addDialogOpen = true;
+  }
+
+  function closeAddDialog() {
+    addDialogOpen = false;
+  }
+
+  function getAddDialogIdPlaceholder(nextCategory: LibraryCategory) {
+    if (nextCategory === 'zombie') return '例如 NORMAL';
+    if (nextCategory === 'shovel') return '例如 DEFAULT';
+    if (nextCategory === 'mower') return '例如 DEFAULT';
+    return '例如 PEASHOOTER';
+  }
+
+  function getAddDialogKeys() {
+    const id = addDialogId.trim();
+    const prefix = addDialogPrefix || getCategoryDefaultPrefix(category);
+    if (!id || !prefix) {
+      return {
+        NAME: { key: '', exists: false },
+        EXPRESTION: { key: '', exists: false },
+        HANDBOOK_EXPRESTION: { key: '', exists: false },
+        HANDBOOK_STORY: { key: '', exists: false },
+      };
+    }
+    const keys = {
+      NAME: keyForField(id, 'NAME', prefix),
+      EXPRESTION: keyForField(id, 'EXPRESTION', prefix),
+      HANDBOOK_EXPRESTION: keyForField(id, 'HANDBOOK_EXPRESTION', prefix),
+      HANDBOOK_STORY: keyForField(id, 'HANDBOOK_STORY', prefix),
+    };
+    return {
+      NAME: { key: keys.NAME, exists: keyExists(keys.NAME) },
+      EXPRESTION: { key: keys.EXPRESTION, exists: keyExists(keys.EXPRESTION) },
+      HANDBOOK_EXPRESTION: { key: keys.HANDBOOK_EXPRESTION, exists: keyExists(keys.HANDBOOK_EXPRESTION) },
+      HANDBOOK_STORY: { key: keys.HANDBOOK_STORY, exists: keyExists(keys.HANDBOOK_STORY) },
+    };
+  }
+
+  function canAddEntry() {
+    if (!csvHeaders.length) return false;
+    const id = addDialogId.trim();
+    const prefix = addDialogPrefix || getCategoryDefaultPrefix(category);
+    if (!id || !prefix) return false;
+    const keys = getAddDialogKeys();
+    if (keys.NAME.exists || keys.EXPRESTION.exists || keys.HANDBOOK_EXPRESTION.exists || keys.HANDBOOK_STORY.exists)
+      return false;
+    return true;
+  }
+
+  function applyAddEntry() {
+    if (!canAddEntry()) return;
+    const id = addDialogId.trim();
+    const prefix = addDialogPrefix || getCategoryDefaultPrefix(category);
+    const keys = getAddDialogKeys();
+    writeValue(keys.NAME.key, '');
+    writeValue(keys.EXPRESTION.key, '');
+    writeValue(keys.HANDBOOK_EXPRESTION.key, '');
+    writeValue(keys.HANDBOOK_STORY.key, '');
+    isDirty = true;
+    rebuildOptions();
+    entryId = id;
+    entryPrefix = prefix;
+    selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
+    syncFieldsFromCsv();
+    addDialogOpen = false;
+  }
+
   $effect(() => {
     category;
     lang;
@@ -461,15 +389,16 @@
     const result = await invoke<{ path: string; content: string } | null>('open_csv_file');
     if (!result) return;
 
+    csvText = result.content;
     const parsed = parseCsv(result.content);
     csvHeaders = parsed.headers;
-    csvRows = parsed.rows;
+    csvRows = normalizeRowsByKey(parsed.headers, parsed.rows);
     keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
     csvPath = result.path;
     isDirty = false;
 
     if (keyToRow.size) {
-      const categories: LibraryCategory[] = ['plant', 'zombie', 'tool'];
+      const categories: LibraryCategory[] = ['plant', 'zombie', 'shovel', 'mower'];
       let best = category;
       let bestCount = computeEntryOptions(category).length;
       for (const c of categories) {
@@ -494,8 +423,17 @@
   }
 
   async function saveCsv() {
-    if (!csvHeaders.length) return false;
-    const content = stringifyCsv(csvHeaders, csvRows);
+    if (!csvText.length) return false;
+    let content = csvText;
+    if (viewMode === 'almanac' && csvHeaders.length) {
+      const normalized = normalizeRowsByKey(csvHeaders, csvRows);
+      if (normalized.length !== csvRows.length) {
+        csvRows = normalized;
+        keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
+      }
+      content = stringifyCsv(csvHeaders, normalized);
+      csvText = content;
+    }
 
     if (csvPath) {
       await invoke<void>('save_csv_file', { path: csvPath, content });
@@ -511,8 +449,17 @@
   }
 
   async function saveCsvAs() {
-    if (!csvHeaders.length) return false;
-    const content = stringifyCsv(csvHeaders, csvRows);
+    if (!csvText.length) return false;
+    let content = csvText;
+    if (viewMode === 'almanac' && csvHeaders.length) {
+      const normalized = normalizeRowsByKey(csvHeaders, csvRows);
+      if (normalized.length !== csvRows.length) {
+        csvRows = normalized;
+        keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
+      }
+      content = stringifyCsv(csvHeaders, normalized);
+      csvText = content;
+    }
     const nextPath = await invoke<string | null>('save_csv_file_as', { content });
     if (!nextPath) return false;
     csvPath = nextPath;
@@ -522,7 +469,7 @@
 
   function setField(field: AlmanacFieldKey, value: string) {
     fields = { ...fields, [field]: value };
-    if (csvHeaders.length) isDirty = true;
+    if (csvPath) isDirty = true;
     if (!entryId || !entryPrefix) return;
     writeValue(keyForField(entryId, field, entryPrefix), toCsvStoredValue(value));
   }
@@ -552,286 +499,65 @@
   function confirmCloseCancel() {
     closeConfirmOpen = false;
   }
+
+  function setViewMode(next: 'almanac' | 'text') {
+    if (next === viewMode) return;
+    viewMode = next;
+    if (next !== 'almanac') return;
+    rebuildOptions();
+    syncFieldsFromCsv();
+  }
+
 </script>
 
-<div class="root {theme}">
-  <AlmanacToolbar {category} />
-
-  {#if closeConfirmOpen}
-    <div class="modal-backdrop" role="presentation">
-      <div class="modal" role="dialog" aria-modal="true" aria-label="未保存提示">
-        <div class="modal-title">编辑的内容未保存，是否保存？</div>
-        <div class="modal-actions">
-          <button type="button" class="button modal-primary" onclick={confirmCloseSave} disabled={!csvHeaders.length}>
-            保存退出
-          </button>
-          <button type="button" class="button modal-danger" onclick={confirmCloseDiscard}>
-            不保存退出
-          </button>
-          <button type="button" class="button" onclick={confirmCloseCancel}>取消</button>
-        </div>
-      </div>
-    </div>
+<AlmanacPageFrame
+  theme={theme}
+  {category}
+  {csvPath}
+  {viewMode}
+  closeConfirmOpen={closeConfirmOpen}
+  hasCsv={csvPath !== null}
+  canSave={csvPath !== null && isDirty}
+  canSaveAs={csvPath !== null}
+  onOpenCsv={openCsv}
+  onSaveCsv={saveCsv}
+  onSaveCsvAs={saveCsvAs}
+  onSetViewMode={setViewMode}
+  onConfirmCloseSave={confirmCloseSave}
+  onConfirmCloseDiscard={confirmCloseDiscard}
+  onConfirmCloseCancel={confirmCloseCancel}
+>
+  {#if viewMode === 'almanac'}
+    <AlmanacModeScene
+      {category}
+      {lang}
+      entryOptions={entryOptions}
+      entryId={entryId}
+      entryPrefix={entryPrefix}
+      addDisabled={!csvHeaders.length}
+      {previewSide}
+      previewFields={getPreviewFields()}
+      {fields}
+      onSelectEntry={(id, prefix) => {
+        entryId = id;
+        entryPrefix = prefix;
+        selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
+      }}
+      onOpenAddDialog={openAddDialog}
+      onCategoryChange={changeCategory}
+      onLangChange={(next) => (lang = next)}
+      onFieldChange={setField}
+      addDialogOpen={addDialogOpen}
+      addDialogCategoryLabel={FILTERS[category].label}
+      addDialogId={addDialogId}
+      addDialogIdPlaceholder={getAddDialogIdPlaceholder(category)}
+      addDialogKeys={addDialogId.trim() ? getAddDialogKeys() : null}
+      canAddEntry={canAddEntry()}
+      onAddDialogIdChange={(next) => (addDialogId = next)}
+      onApplyAddEntry={applyAddEntry}
+      onCloseAddDialog={closeAddDialog}
+    />
+  {:else}
+    <TextModeScene csvText={csvText} onCsvTextChange={applyCsvText} editable={csvPath !== null} />
   {/if}
-
-  <div class="topbar">
-    <div class="topbar-right">
-      <div class="path topbar-path">{csvPath ?? '未打开文件'}</div>
-      <button type="button" class="button" onclick={openCsv}>打开文件</button>
-      <div class="split-button">
-        <button type="button" class="split split-left" onclick={saveCsv} disabled={!csvHeaders.length || !isDirty}>
-          保存
-        </button>
-        <button type="button" class="split split-right" onclick={saveCsvAs} disabled={!csvHeaders.length}>
-          另存为
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div class="content">
-    <div class="left">
-      <div class="left-top">
-        <AlmanacEntrySelect
-          options={entryOptions}
-          selectedId={entryId}
-          selectedPrefix={entryPrefix}
-          onSelect={(id, prefix) => {
-            entryId = id;
-            entryPrefix = prefix;
-            selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
-          }}
-        />
-      </div>
-
-      <div class="left-bottom">
-        <AlmanacCardPreview side={previewSide} fields={getPreviewFields()} />
-      </div>
-    </div>
-
-    <div class="right">
-      <AlmanacEditorPanel
-        {category}
-        {lang}
-        {fields}
-        onCategoryChange={changeCategory}
-        onLangChange={(next) => (lang = next)}
-        onFieldChange={setField}
-      />
-    </div>
-  </div>
-</div>
-
-<style>
-  .root {
-    height: 100vh;
-    width: 100vw;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-color);
-    border-radius: 0.5rem;
-    overflow: hidden;
-  }
-
-  .root.default {
-    --bg-color: #fdc689;
-    --dark-bg-color: #8f431b;
-  }
-
-  .root.zombie {
-    --bg-color: #b9aed8;
-    --dark-bg-color: #5f6181;
-  }
-
-  :where(.button, .split) {
-    outline: none;
-  }
-
-  .content {
-    flex: 1;
-    width: 100%;
-    display: flex;
-    align-items: stretch;
-    justify-content: center;
-    overflow: hidden;
-  }
-
-  .topbar {
-    height: 50px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    box-sizing: border-box;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
-    justify-content: flex-end;
-  }
-
-  .topbar-right {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 10px;
-  }
-
-  .topbar-path {
-    max-width: 520px;
-    text-align: right;
-  }
-
-  .left {
-    width: 450px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    border-right: 1px solid rgba(0, 0, 0, 0.12);
-    padding: 12px 0;
-    box-sizing: border-box;
-  }
-
-  .left-top {
-    display: flex;
-    justify-content: center;
-  }
-
-  .left-bottom {
-    height: 625px;
-  }
-
-  .right {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 12px;
-    box-sizing: border-box;
-    gap: 10px;
-  }
-
-  .button {
-    height: 34px;
-    padding: 0 12px;
-    border-radius: 10px;
-    border: 1px solid rgba(0, 0, 0, 0.18);
-    background: rgba(255, 255, 255, 0.26);
-    cursor: pointer;
-    user-select: none;
-    transition:
-      background 120ms ease,
-      transform 60ms ease,
-      box-shadow 120ms ease;
-  }
-
-  .button:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.34);
-  }
-
-  .button:active:not(:disabled) {
-    transform: translateY(1px);
-    background: rgba(255, 255, 255, 0.42);
-  }
-
-  .button:focus-visible:not(:disabled) {
-    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.18);
-  }
-
-  .button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .path {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    color: rgba(0, 0, 0, 0.55);
-  }
-
-  .split-button {
-    display: inline-flex;
-    height: 34px;
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.18);
-  }
-
-  .split {
-    height: 34px;
-    padding: 0 12px;
-    border: 0;
-    background: rgba(255, 255, 255, 0.22);
-    cursor: pointer;
-    user-select: none;
-    transition:
-      background 120ms ease,
-      transform 60ms ease,
-      box-shadow 120ms ease;
-  }
-
-  .split:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.32);
-  }
-
-  .split:active:not(:disabled) {
-    transform: translateY(1px);
-    background: rgba(255, 255, 255, 0.42);
-  }
-
-  .split:focus-visible:not(:disabled) {
-    box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.18);
-  }
-
-  .split:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .split-right {
-    border-left: 1px solid rgba(0, 0, 0, 0.18);
-  }
-
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 18px;
-    background: rgba(0, 0, 0, 0.35);
-  }
-
-  .modal {
-    width: min(420px, calc(100vw - 36px));
-    border-radius: 14px;
-    border: 1px solid rgba(0, 0, 0, 0.18);
-    background: color-mix(in srgb, var(--bg-color) 78%, white 22%);
-    padding: 14px;
-    box-sizing: border-box;
-  }
-
-  .modal-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: rgba(0, 0, 0, 0.72);
-    margin-bottom: 12px;
-  }
-
-  .modal-actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-  }
-
-  .modal-primary {
-    background: rgba(255, 255, 255, 0.55);
-  }
-
-  .modal-danger {
-    background: color-mix(in srgb, #ff3b30 22%, rgba(255, 255, 255, 0.26));
-  }
-</style>
+</AlmanacPageFrame>

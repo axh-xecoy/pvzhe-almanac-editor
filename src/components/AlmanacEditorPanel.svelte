@@ -5,6 +5,7 @@
   type Props = {
     category: LibraryCategory;
     lang: 'zh' | 'en' | 'es';
+    mode: 'almanac' | 'field';
     fields: Record<AlmanacFieldKey, string>;
     onCategoryChange: (category: LibraryCategory) => void;
     onLangChange: (lang: 'zh' | 'en' | 'es') => void;
@@ -33,10 +34,17 @@
       </button>
       <button
         type="button"
-        class="ear {props.category === 'tool' ? 'active' : ''}"
-        onclick={() => props.onCategoryChange('tool')}
+        class="ear {props.category === 'shovel' ? 'active' : ''}"
+        onclick={() => props.onCategoryChange('shovel')}
       >
-        道具
+        铲子
+      </button>
+      <button
+        type="button"
+        class="ear {props.category === 'mower' ? 'active' : ''}"
+        onclick={() => props.onCategoryChange('mower')}
+      >
+        小推车
       </button>
     </div>
 
@@ -61,7 +69,7 @@
           <div class="editor-box editor-box-small">
             <AlmanacTextEditor
               value={props.fields.NAME}
-              mode="almanac"
+              mode={props.mode === 'almanac' ? 'almanac' : 'text'}
               onValueChange={(v: string) => props.onFieldChange('NAME', v)}
             />
           </div>
@@ -72,7 +80,7 @@
           <div class="editor-box editor-box-middle">
             <AlmanacTextEditor
               value={props.fields.EXPRESTION}
-              mode="almanac"
+              mode={props.mode === 'almanac' ? 'almanac' : 'text'}
               onValueChange={(v: string) => props.onFieldChange('EXPRESTION', v)}
             />
           </div>
@@ -83,7 +91,7 @@
           <div class="editor-box editor-box-large">
             <AlmanacTextEditor
               value={props.fields.HANDBOOK_EXPRESTION}
-              mode="almanac"
+              mode={props.mode === 'almanac' ? 'almanac' : 'text'}
               onValueChange={(v: string) => props.onFieldChange('HANDBOOK_EXPRESTION', v)}
             />
           </div>
@@ -94,7 +102,7 @@
           <div class="editor-box editor-box-middle">
             <AlmanacTextEditor
               value={props.fields.HANDBOOK_STORY}
-              mode="almanac"
+              mode={props.mode === 'almanac' ? 'almanac' : 'text'}
               onValueChange={(v: string) => props.onFieldChange('HANDBOOK_STORY', v)}
             />
           </div>
@@ -213,11 +221,11 @@
   }
 
   .editor-box-small {
-    height: 30px;
+    height: 32px;
   }
 
   .editor-box-middle {
-    height: 118px;
+    height: 117px;
   }
 
   .editor-box-large {
