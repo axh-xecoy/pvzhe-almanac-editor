@@ -439,6 +439,24 @@
     background-color: rgba(0, 0, 0, 0.4);
   }
 
+  :global(.ace_editor.ace_autocomplete .ace_scrollbar::-webkit-scrollbar) {
+    width: 8px;
+    height: 8px;
+  }
+
+  :global(.ace_editor.ace_autocomplete .ace_scrollbar::-webkit-scrollbar-thumb) {
+    border-radius: 0 !important;
+    background-color: color-mix(in srgb, var(--dark-bg-color, #8f431b) 40%, white) !important;
+  }
+
+  :global(.ace_editor.ace_autocomplete .ace_scrollbar::-webkit-scrollbar-thumb:hover) {
+    background-color: color-mix(in srgb, var(--dark-bg-color, #8f431b) 60%, white) !important;
+  }
+
+  :global(.ace_editor.ace_autocomplete .ace_scrollbar::-webkit-scrollbar-track) {
+    background-color: color-mix(in srgb, var(--bg-color, #fdc689) 25%, white) !important;
+  }
+
   :global(.editor .ace_scrollbar) {
     display: none !important;
   }
