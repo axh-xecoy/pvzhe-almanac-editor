@@ -4,9 +4,10 @@
 
   type Props = {
     category: LibraryCategory;
+    onAbout?: () => void;
   };
 
-  let { category }: Props = $props();
+  let { category, onAbout }: Props = $props();
 
   async function minimizeWindow() {
     await getCurrentWindow().minimize();
@@ -32,6 +33,9 @@
   </div>
 
   <div class="right">
+    <button type="button" class="mini-button about-button" onclick={onAbout} title="关于">
+      𝒊
+    </button>
     <button type="button" class="mini-button" onclick={minimizeWindow} title="最小化窗口">
       ━
     </button>
@@ -78,16 +82,35 @@
 
   .mini-button {
     height: 28px;
-    min-width: 28px;
-    padding: 0 8px;
+    width: 28px;
+    padding: 0;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: white;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition:
+      background 120ms ease,
+      transform 60ms ease,
+      box-shadow 120ms ease;
   }
 
   .mini-button:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+
+  .mini-button:active {
+    transform: translateY(1px);
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .about-button {
+    font-weight: 900;
+    font-size: 15px;
   }
 </style>

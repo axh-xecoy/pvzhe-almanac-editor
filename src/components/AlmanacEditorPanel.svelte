@@ -161,6 +161,7 @@
     cursor: pointer;
     user-select: none;
     margin-bottom: -1px;
+    color: rgba(0, 0, 0, 0.65);
   }
 
   .ear:hover {

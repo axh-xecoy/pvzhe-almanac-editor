@@ -6,7 +6,7 @@
   type Props = {
     value: string;
     onValueChange: (value: string) => void;
-    mode?: 'text' | 'almanac';
+    mode?: 'text' | 'almanac' | 'almanac_csv';
     fontSize?: number;
     minHeight?: number;
     onHeightChange?: (height: number) => void;
@@ -30,59 +30,120 @@
   let lastMode: Props['mode'] = $state('text');
 
   function ensureAlmanacMode(ace: any) {
-    const existing = (() => {
+    const has = (id: string) => {
       try {
-        return ace.require('ace/mode/pvzhe_almanac');
+        return !!ace.require(id);
       } catch {
-        return null;
+        return false;
       }
-    })();
-    if (existing?.Mode) return;
+    };
 
-    ace.define(
-      'ace/mode/pvzhe_almanac_highlight_rules',
-      ['require', 'exports', 'module', 'ace/lib/oop', 'ace/mode/text_highlight_rules'],
-      function (require: any, exports: any) {
-        const oop = require('ace/lib/oop');
-        const TextHighlightRules = require('ace/mode/text_highlight_rules').TextHighlightRules;
+    if (!has('ace/mode/pvzhe_almanac_highlight_rules')) {
+      ace.define(
+        'ace/mode/pvzhe_almanac_highlight_rules',
+        ['require', 'exports', 'module', 'ace/lib/oop', 'ace/mode/text_highlight_rules'],
+        function (require: any, exports: any) {
+          const oop = require('ace/lib/oop');
+          const TextHighlightRules = require('ace/mode/text_highlight_rules').TextHighlightRules;
 
-        const PvzheAlmanacHighlightRules = function (this: any) {
-          this.$rules = {
-            start: [
-              { token: ['custom-purple', 'custom-cyan', 'custom-purple'], regex: /(\[color=)([#0-9a-fA-F]{3,8})(\])/ },
-              { token: 'custom-purple', regex: /\[color=\]/ },
-              { token: 'custom-purple', regex: /\[color\]/ },
-              { token: 'custom-purple', regex: /\[\/color\]/ },
-            ],
+          const PvzheAlmanacHighlightRules = function (this: any) {
+            this.$rules = {
+              start: [
+                { token: ['custom-purple', 'custom-cyan', 'custom-purple'], regex: /(\[color=)([#0-9a-fA-F]{3,8})(\])/ },
+                { token: 'custom-purple', regex: /\[color=\]/ },
+                { token: 'custom-purple', regex: /\[color\]/ },
+                { token: 'custom-purple', regex: /\[\/color\]/ },
+              ],
+            };
+            this.normalizeRules();
           };
-          this.normalizeRules();
-        };
 
-        oop.inherits(PvzheAlmanacHighlightRules, TextHighlightRules);
-        (exports as any).PvzheAlmanacHighlightRules = PvzheAlmanacHighlightRules;
-      }
-    );
+          oop.inherits(PvzheAlmanacHighlightRules, TextHighlightRules);
+          (exports as any).PvzheAlmanacHighlightRules = PvzheAlmanacHighlightRules;
+        }
+      );
+    }
 
-    ace.define(
-      'ace/mode/pvzhe_almanac',
-      ['require', 'exports', 'module', 'ace/lib/oop', 'ace/mode/text', 'ace/mode/pvzhe_almanac_highlight_rules'],
-      function (require: any, exports: any) {
-        const oop = require('ace/lib/oop');
-        const TextMode = require('ace/mode/text').Mode;
-        const PvzheAlmanacHighlightRules = require('ace/mode/pvzhe_almanac_highlight_rules').PvzheAlmanacHighlightRules;
+    if (!has('ace/mode/pvzhe_almanac')) {
+      ace.define(
+        'ace/mode/pvzhe_almanac',
+        ['require', 'exports', 'module', 'ace/lib/oop', 'ace/mode/text', 'ace/mode/pvzhe_almanac_highlight_rules'],
+        function (require: any, exports: any) {
+          const oop = require('ace/lib/oop');
+          const TextMode = require('ace/mode/text').Mode;
+          const PvzheAlmanacHighlightRules = require('ace/mode/pvzhe_almanac_highlight_rules').PvzheAlmanacHighlightRules;
 
-        const Mode = function (this: any) {
-          this.HighlightRules = PvzheAlmanacHighlightRules;
-          this.$id = 'ace/mode/pvzhe_almanac';
-        };
-        oop.inherits(Mode, TextMode);
+          const Mode = function (this: any) {
+            this.HighlightRules = PvzheAlmanacHighlightRules;
+            this.$id = 'ace/mode/pvzhe_almanac';
+          };
+          oop.inherits(Mode, TextMode);
 
-        (exports as any).Mode = Mode;
-      }
-    );
+          (exports as any).Mode = Mode;
+        }
+      );
+    }
+
+    if (!has('ace/mode/pvzhe_almanac_csv_highlight_rules')) {
+      ace.define(
+        'ace/mode/pvzhe_almanac_csv_highlight_rules',
+        ['require', 'exports', 'module', 'ace/lib/oop', 'ace/mode/text_highlight_rules'],
+        function (require: any, exports: any) {
+          const oop = require('ace/lib/oop');
+          const TextHighlightRules = require('ace/mode/text_highlight_rules').TextHighlightRules;
+
+          const PvzheAlmanacCsvHighlightRules = function (this: any) {
+            this.$rules = {
+              start: [
+                { token: 'pvzhe_csv_quote', regex: /"/, next: 'csv_q' },
+                { token: 'pvzhe_csv_sep', regex: /,/ },
+                { token: ['custom-purple', 'custom-cyan', 'custom-purple'], regex: /(\[color=)([#0-9a-fA-F]{3,8})(\])/ },
+                { token: 'custom-purple', regex: /\[color=\]/ },
+                { token: 'custom-purple', regex: /\[color\]/ },
+                { token: 'custom-purple', regex: /\[\/color\]/ },
+              ],
+              csv_q: [
+                { token: 'pvzhe_csv_quote', regex: /""/ },
+                { token: 'pvzhe_csv_quote', regex: /"/, next: 'start' },
+                { token: ['custom-purple', 'custom-cyan', 'custom-purple'], regex: /(\[color=)([#0-9a-fA-F]{3,8})(\])/ },
+                { token: 'custom-purple', regex: /\[color=\]/ },
+                { token: 'custom-purple', regex: /\[color\]/ },
+                { token: 'custom-purple', regex: /\[\/color\]/ },
+                { token: 'text', regex: /[^"]+/ },
+              ],
+            };
+            this.normalizeRules();
+          };
+
+          oop.inherits(PvzheAlmanacCsvHighlightRules, TextHighlightRules);
+          (exports as any).PvzheAlmanacCsvHighlightRules = PvzheAlmanacCsvHighlightRules;
+        }
+      );
+    }
+
+    if (!has('ace/mode/pvzhe_almanac_csv')) {
+      ace.define(
+        'ace/mode/pvzhe_almanac_csv',
+        ['require', 'exports', 'module', 'ace/lib/oop', 'ace/mode/text', 'ace/mode/pvzhe_almanac_csv_highlight_rules'],
+        function (require: any, exports: any) {
+          const oop = require('ace/lib/oop');
+          const TextMode = require('ace/mode/text').Mode;
+          const PvzheAlmanacCsvHighlightRules =
+            require('ace/mode/pvzhe_almanac_csv_highlight_rules').PvzheAlmanacCsvHighlightRules;
+
+          const Mode = function (this: any) {
+            this.HighlightRules = PvzheAlmanacCsvHighlightRules;
+            this.$id = 'ace/mode/pvzhe_almanac_csv';
+          };
+          oop.inherits(Mode, TextMode);
+
+          (exports as any).Mode = Mode;
+        }
+      );
+    }
   }
 
-  function setAceMode(nextMode: 'text' | 'almanac') {
+  function setAceMode(nextMode: 'text' | 'almanac' | 'almanac_csv') {
     if (!aceEditor) return;
     if (nextMode === 'almanac') {
       try {
@@ -95,6 +156,19 @@
       } catch {
       }
       aceEditor.session.setMode('ace/mode/pvzhe_almanac');
+      return;
+    }
+    if (nextMode === 'almanac_csv') {
+      try {
+        const ace = aceEditor.constructor;
+        const mod = ace.require('ace/mode/pvzhe_almanac_csv');
+        if (mod?.Mode) {
+          aceEditor.session.setMode(new mod.Mode());
+          return;
+        }
+      } catch {
+      }
+      aceEditor.session.setMode('ace/mode/pvzhe_almanac_csv');
       return;
     }
     aceEditor.session.setMode('ace/mode/text');
@@ -174,11 +248,51 @@
     return value.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
   }
 
+  function resetUndoHistory() {
+    if (!aceEditor) return;
+    try {
+      const um = aceEditor.session?.getUndoManager?.();
+      um?.reset?.();
+      um?.markClean?.();
+    } catch {
+    }
+  }
+
   function setValue(next: string) {
     if (!aceEditor) return;
 
     const current = aceEditor.getValue();
-    if (current === next) return;
+    if (current === next) return false;
+
+    const wasFocused = (() => {
+      try {
+        if (typeof aceEditor.isFocused === 'function') return !!aceEditor.isFocused();
+      } catch {
+      }
+      try {
+        return !!container?.classList?.contains?.('ace_focus');
+      } catch {
+      }
+      return false;
+    })();
+
+    const prevScrollTop = (() => {
+      try {
+        const v = aceEditor.session?.getScrollTop?.() ?? aceEditor.renderer?.getScrollTop?.();
+        return Math.max(0, Number(v ?? 0) || 0);
+      } catch {
+        return 0;
+      }
+    })();
+
+    const prevScrollLeft = (() => {
+      try {
+        const v = aceEditor.session?.getScrollLeft?.() ?? aceEditor.renderer?.getScrollLeft?.();
+        return Math.max(0, Number(v ?? 0) || 0);
+      } catch {
+        return 0;
+      }
+    })();
 
     const currentCursorPos = aceEditor.getCursorPosition();
     const currentCursorIndex =
@@ -206,21 +320,39 @@
         aceEditor.session?.getDocument?.()?.indexToPosition?.(idx, 0) ?? { row: 0, column: 0 };
       aceEditor.moveCursorTo(pos.row, pos.column);
       aceEditor.clearSelection();
-      aceEditor.renderer?.scrollCursorIntoView?.();
     } catch {
+    }
+
+    if (wasFocused) {
+      try {
+        aceEditor.renderer?.scrollCursorIntoView?.();
+      } catch {
+      }
+    } else {
+      try {
+        aceEditor.session?.setScrollTop?.(prevScrollTop);
+      } catch {
+      }
+      try {
+        aceEditor.session?.setScrollLeft?.(prevScrollLeft);
+      } catch {
+      }
     }
 
     // Re-attach change listener
     if (changeHandler) {
       aceEditor.on('change', changeHandler);
     }
+
+    return true;
   }
 
   $effect(() => {
     if (!aceEditor) return;
     // Normalize input value: remove \r and ensure string
     const next = String(props.value ?? '').replace(/\r/g, '');
-    setValue(next);
+    const changed = setValue(next);
+    if (changed) resetUndoHistory();
   });
 
   $effect(() => {
@@ -302,6 +434,10 @@
 
       const editor = ace.edit(container);
       aceEditor = editor;
+      try {
+        (editor as any).__pvzheAce = ace;
+      } catch {
+      }
 
       // Disable default local completers (avoid noise like "abc" -> "abd")
       // We only want our custom completer.
@@ -313,6 +449,7 @@
         showPrintMargin: false,
         indentedSoftWrap: false,
         fixedWidthGutter: true,
+        highlightSelectedWord: false,
       });
       // Clear default completers to remove noise
       if (langTools) {
@@ -339,6 +476,7 @@
       editor.on('change', changeHandler);
 
       setValue(String(props.value ?? '').replace(/\r/g, ''));
+      resetUndoHistory();
       editor.resize(true);
       emitHeight();
       scheduleEmitHeight();
@@ -459,6 +597,12 @@
   :global(.editor .ace_gutter-active-line) {
     background: color-mix(in srgb, var(--bg-color) 70%, var(--dark-bg-color) 30%);
     color: var(--dark-bg-color);
+  }
+
+  :global(.editor .ace_pvzhe_csv_sep) {
+    background: transparent;
+    color: rgba(0, 0, 0,0.65) !important;
+    font-weight: 700;
   }
 
   :global(.editor *) {

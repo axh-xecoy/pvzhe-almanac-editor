@@ -1,0 +1,1 @@
+export const versions = [1, 0, 0]; // 实际需要映射为vx.x.x这样的显示效果

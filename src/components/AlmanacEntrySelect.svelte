@@ -163,7 +163,6 @@
             onclick={toggleSort}
             aria-label="切换排序"
             aria-pressed={sortDescending}
-            title={sortDescending ? '倒序' : '正序'}
           >
             {sortDescending ? '↓' : '↑'}
           </button>
@@ -222,6 +221,7 @@
     font-size: 14px;
     cursor: pointer;
     user-select: none;
+    color: rgba(0, 0, 0, 0.65);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -306,7 +306,7 @@
     background: transparent;
     cursor: pointer;
     user-select: none;
-    color: color-mix(in srgb, var(--dark-bg-color) 62%, var(--bg-color));
+    color: rgba(0, 0, 0, 0.65);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -350,7 +350,7 @@
     padding: 0 10px;
     box-sizing: border-box;
     font-size: 13px;
-    color: var(--dark-bg-color);
+    color: rgba(0, 0, 0, 0.65);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -375,7 +375,7 @@
     user-select: none;
     font-size: 18px;
     line-height: 1;
-    color: var(--dark-bg-color);
+    color: rgba(0, 0, 0, 0.65);
     display: flex;
     align-items: center;
     justify-content: center;

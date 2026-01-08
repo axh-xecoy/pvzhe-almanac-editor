@@ -2,6 +2,7 @@
   import AlmanacCardPreview from '@component/AlmanacCardPreview.svelte';
   import AlmanacEditorPanel from '@component/AlmanacEditorPanel.svelte';
   import AlmanacEntrySelect from '@component/AlmanacEntrySelect.svelte';
+  import Modal from '@component/Modal.svelte';
   import type { AlmanacFieldKey, LibraryCategory, LibrarySide } from '@util/almanacTypes';
 
   type AddDialogKeys = {
@@ -72,52 +73,49 @@
 
   {#if props.addDialogOpen}
     {#key props.category}
-      <div class="modal-backdrop" role="presentation">
-        <div
-          class="modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`新增${props.addDialogCategoryLabel}图鉴条目`}
-        >
-          <div class="modal-title">新增{props.addDialogCategoryLabel}图鉴条目</div>
-          <div class="add-body">
-            <div class="add-field">
-              <div class="add-label">ID</div>
-              <input
-                class="add-input"
-                value={props.addDialogId}
-                oninput={(e) => props.onAddDialogIdChange((e.target as HTMLInputElement).value)}
-                placeholder={props.addDialogIdPlaceholder}
-              />
-            </div>
-            {#if props.addDialogKeys}
-              <div class="add-preview">
-                <div class="add-preview-title">将生成的 Key：</div>
-                <div class="add-preview-list">
-                  <div class="add-preview-item {props.addDialogKeys.NAME.exists ? 'exists' : ''}">
-                    {props.addDialogKeys.NAME.key}
-                  </div>
-                  <div class="add-preview-item {props.addDialogKeys.EXPRESTION.exists ? 'exists' : ''}">
-                    {props.addDialogKeys.EXPRESTION.key}
-                  </div>
-                  <div class="add-preview-item {props.addDialogKeys.HANDBOOK_EXPRESTION.exists ? 'exists' : ''}">
-                    {props.addDialogKeys.HANDBOOK_EXPRESTION.key}
-                  </div>
-                  <div class="add-preview-item {props.addDialogKeys.HANDBOOK_STORY.exists ? 'exists' : ''}">
-                    {props.addDialogKeys.HANDBOOK_STORY.key}
-                  </div>
+      <Modal
+        open={props.addDialogOpen}
+        ariaLabel={`新增${props.addDialogCategoryLabel}图鉴条目`}
+        title={`新增${props.addDialogCategoryLabel}图鉴条目`}
+        closeOnBackdrop={false}
+        onClose={props.onCloseAddDialog}
+      >
+        <div class="add-body">
+          <div class="add-field">
+            <div class="add-label">ID</div>
+            <input
+              class="add-input"
+              value={props.addDialogId}
+              oninput={(e) => props.onAddDialogIdChange((e.target as HTMLInputElement).value)}
+              placeholder={props.addDialogIdPlaceholder}
+            />
+          </div>
+          {#if props.addDialogKeys}
+            <div class="add-preview">
+              <div class="add-preview-title">将生成的 Key：</div>
+              <div class="add-preview-list">
+                <div class="add-preview-item {props.addDialogKeys.NAME.exists ? 'exists' : ''}">{props.addDialogKeys.NAME.key}</div>
+                <div class="add-preview-item {props.addDialogKeys.EXPRESTION.exists ? 'exists' : ''}">
+                  {props.addDialogKeys.EXPRESTION.key}
+                </div>
+                <div class="add-preview-item {props.addDialogKeys.HANDBOOK_EXPRESTION.exists ? 'exists' : ''}">
+                  {props.addDialogKeys.HANDBOOK_EXPRESTION.key}
+                </div>
+                <div class="add-preview-item {props.addDialogKeys.HANDBOOK_STORY.exists ? 'exists' : ''}">
+                  {props.addDialogKeys.HANDBOOK_STORY.key}
                 </div>
               </div>
-            {/if}
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="button modal-primary" onclick={props.onApplyAddEntry} disabled={!props.canAddEntry}>
-              添加
-            </button>
-            <button type="button" class="button" onclick={props.onCloseAddDialog}>取消</button>
-          </div>
+            </div>
+          {/if}
         </div>
-      </div>
+
+        {#snippet actions()}
+          <button type="button" class="button modal-primary" onclick={props.onApplyAddEntry} disabled={!props.canAddEntry}>
+            添加
+          </button>
+          <button type="button" class="button" onclick={props.onCloseAddDialog}>取消</button>
+        {/snippet}
+      </Modal>
     {/key}
   {/if}
 </div>
@@ -165,7 +163,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-bottom: 12px;
   }
 
   .add-field {
@@ -234,42 +231,5 @@
 
   .add-preview-item.exists {
     color: #ff3b30;
-  }
-
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 18px;
-    background: rgba(0, 0, 0, 0.35);
-  }
-
-  .modal {
-    width: min(520px, calc(100vw - 36px));
-    border-radius: 14px;
-    border: 1px solid rgba(0, 0, 0, 0.18);
-    background: color-mix(in srgb, var(--bg-color) 78%, white 22%);
-    padding: 14px;
-    box-sizing: border-box;
-  }
-
-  .modal-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: rgba(0, 0, 0, 0.72);
-    margin-bottom: 12px;
-  }
-
-  .modal-actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-  }
-
-  .modal-primary {
-    background: rgba(255, 255, 255, 0.55);
   }
 </style>

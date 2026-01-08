@@ -20,6 +20,7 @@
   let keyToRow: Map<string, number> = $state(new Map());
 
   let viewMode: 'almanac' | 'text' = $state('almanac');
+  let textModeScrollPosition: import('@component/TextModeScene.svelte').TextScrollPosition | null = $state(null);
 
   function syncCsvTextFromTable() {
     if (!csvHeaders.length) return;
@@ -90,6 +91,45 @@
   onMount(() => {
     let unlisten: null | (() => void) = null;
 
+    const onContextMenu = (e: MouseEvent) => {
+      try {
+        e.preventDefault();
+      } catch {
+      }
+    };
+
+    const onKeyDownCapture = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key !== 'f' && key !== 'r') return;
+
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      if (!cmdOrCtrl) return;
+      if (e.altKey) return;
+
+      try {
+        e.preventDefault();
+      } catch {
+      }
+
+      try {
+        e.stopPropagation();
+      } catch {
+      }
+
+      if (csvPath !== null && viewMode === 'text') {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('pvzhe-text-shortcut', { detail: { action: key === 'f' ? 'find' : 'replace' } })
+          );
+        } catch {
+        }
+      }
+    };
+
+    document.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('keydown', onKeyDownCapture, true);
+
     const init = async () => {
       try {
         const mod: any = await import('@tauri-apps/api/window');
@@ -113,6 +153,14 @@
     return () => {
       try {
         unlisten?.();
+      } catch {
+      }
+      try {
+        document.removeEventListener('contextmenu', onContextMenu);
+      } catch {
+      }
+      try {
+        window.removeEventListener('keydown', onKeyDownCapture, true);
       } catch {
       }
     };
@@ -152,6 +200,63 @@
     return fromCsvStoredValue(value);
   }
 
+  function getEntryBaseFromKey(key: string) {
+    for (const field of FIELD_KEYS) {
+      const suffix = `_${field}`;
+      if (!key.endsWith(suffix)) continue;
+      return `${key.slice(0, -suffix.length)}_`;
+    }
+    return null;
+  }
+
+  function findLastRowIndexByEntryBase(entryBase: string) {
+    const keyIdx = getKeyColumnIndex(csvHeaders);
+    if (keyIdx === -1) return -1;
+    for (let i = csvRows.length - 1; i >= 0; i--) {
+      const key = String(csvRows[i]?.[keyIdx] ?? '').trim();
+      if (!key) continue;
+      if (key.startsWith(entryBase)) return i;
+    }
+    return -1;
+  }
+
+  function computeEntryBaseInsertIndex(entryBase: string, lastRowIndex: number) {
+    const keyIdx = getKeyColumnIndex(csvHeaders);
+    if (keyIdx === -1) return csvRows.length;
+
+    let firstBlankIndex: number | null = null;
+    let i = Math.max(0, lastRowIndex + 1);
+    while (i < csvRows.length) {
+      const row = csvRows[i];
+      if (isBlankCsvRow(row)) {
+        if (firstBlankIndex === null) firstBlankIndex = i;
+        i++;
+        continue;
+      }
+
+      const key = String(row?.[keyIdx] ?? '').trim();
+      if (key && key.startsWith(entryBase)) {
+        firstBlankIndex = null;
+        i++;
+        continue;
+      }
+
+      break;
+    }
+
+    return firstBlankIndex ?? i;
+  }
+
+  function getKnownCategoryPrefixForKey(key: string) {
+    for (const { prefixes } of Object.values(FILTERS)) {
+      for (const p of prefixes) {
+        const normalized = normalizePrefix(p);
+        if (key.startsWith(normalized)) return normalized;
+      }
+    }
+    return null;
+  }
+
   function writeValue(key: string, value: string) {
     const keyIdx = getKeyColumnIndex(csvHeaders);
     const colIdx = getColumnIndex(csvHeaders, lang);
@@ -170,6 +275,36 @@
     const nextRow = Array(csvHeaders.length).fill('');
     nextRow[keyIdx] = key;
     nextRow[colIdx] = value;
+
+    const entryBase = getEntryBaseFromKey(key);
+    if (entryBase) {
+      const lastBaseRow = findLastRowIndexByEntryBase(entryBase);
+      if (lastBaseRow !== -1) {
+        const insertIndex = computeEntryBaseInsertIndex(entryBase, lastBaseRow);
+        csvRows = [...csvRows.slice(0, insertIndex), nextRow, ...csvRows.slice(insertIndex)];
+        keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
+        syncCsvTextFromTable();
+        return;
+      }
+    }
+
+    const categoryPrefix = getKnownCategoryPrefixForKey(key);
+    if (categoryPrefix) {
+      const insertIndex = computeAddEntryInsertIndex(categoryPrefix);
+      const toInsert: string[][] = [];
+      if (insertIndex > 0 && !isBlankCsvRow(csvRows[insertIndex - 1])) {
+        toInsert.push(makeBlankRow());
+      }
+      toInsert.push(nextRow);
+      if (insertIndex >= csvRows.length || !isBlankCsvRow(csvRows[insertIndex])) {
+        toInsert.push(makeBlankRow());
+      }
+      csvRows = [...csvRows.slice(0, insertIndex), ...toInsert, ...csvRows.slice(insertIndex)];
+      keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
+      syncCsvTextFromTable();
+      return;
+    }
+
     csvRows = [...csvRows, nextRow];
     keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
     syncCsvTextFromTable();
@@ -317,6 +452,107 @@
     };
   }
 
+  function isBlankCsvRow(row: string[] | undefined) {
+    if (!row) return true;
+    for (const c of row) {
+      if (String(c ?? '').trim()) return false;
+    }
+    return true;
+  }
+
+  function makeBlankRow() {
+    return Array(csvHeaders.length).fill('');
+  }
+
+  function findLastEntryBase(prefix: string) {
+    const keyIdx = getKeyColumnIndex(csvHeaders);
+    if (keyIdx === -1) return null;
+
+    for (let i = csvRows.length - 1; i >= 0; i--) {
+      const row = csvRows[i];
+      const key = String(row?.[keyIdx] ?? '').trim();
+      if (!key) continue;
+      if (!key.startsWith(prefix)) continue;
+
+      for (const field of FIELD_KEYS) {
+        const suffix = `_${field}`;
+        if (!key.endsWith(suffix)) continue;
+        const id = key.slice(prefix.length, -suffix.length);
+        if (!id) continue;
+        return { base: `${prefix}${id}_`, rowIndex: i };
+      }
+    }
+
+    return null;
+  }
+
+  function computeAddEntryInsertIndex(prefix: string) {
+    const keyIdx = getKeyColumnIndex(csvHeaders);
+    if (keyIdx === -1) return csvRows.length;
+
+    const last = findLastEntryBase(prefix);
+    if (last) {
+      let i = last.rowIndex + 1;
+      while (i < csvRows.length) {
+        const row = csvRows[i];
+        if (isBlankCsvRow(row)) {
+          i++;
+          continue;
+        }
+        const key = String(row?.[keyIdx] ?? '').trim();
+        if (key && key.startsWith(last.base)) {
+          i++;
+          continue;
+        }
+        break;
+      }
+      return i;
+    }
+
+    for (let i = csvRows.length - 1; i >= 0; i--) {
+      const row = csvRows[i];
+      const key = String(row?.[keyIdx] ?? '').trim();
+      if (!key) continue;
+      if (!key.startsWith(prefix)) continue;
+
+      let j = i + 1;
+      while (j < csvRows.length && isBlankCsvRow(csvRows[j])) j++;
+      return j;
+    }
+
+    return csvRows.length;
+  }
+
+  function insertNewEntryRows(id: string, prefix: string) {
+    const keyIdx = getKeyColumnIndex(csvHeaders);
+    const colIdx = getColumnIndex(csvHeaders, lang);
+    if (keyIdx === -1 || colIdx === -1) return;
+
+    const insertIndex = computeAddEntryInsertIndex(prefix);
+
+    const toInsert: string[][] = [];
+
+    if (insertIndex > 0 && !isBlankCsvRow(csvRows[insertIndex - 1])) {
+      toInsert.push(makeBlankRow());
+    }
+
+    for (const field of FIELD_KEYS) {
+      const key = keyForField(id, field, prefix);
+      const row = makeBlankRow();
+      row[keyIdx] = key;
+      row[colIdx] = '';
+      toInsert.push(row);
+    }
+
+    if (insertIndex >= csvRows.length || !isBlankCsvRow(csvRows[insertIndex])) {
+      toInsert.push(makeBlankRow());
+    }
+
+    csvRows = [...csvRows.slice(0, insertIndex), ...toInsert, ...csvRows.slice(insertIndex)];
+    keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
+    syncCsvTextFromTable();
+  }
+
   function canAddEntry() {
     if (!csvHeaders.length) return false;
     const id = addDialogId.trim();
@@ -332,11 +568,7 @@
     if (!canAddEntry()) return;
     const id = addDialogId.trim();
     const prefix = addDialogPrefix || getCategoryDefaultPrefix(category);
-    const keys = getAddDialogKeys();
-    writeValue(keys.NAME.key, '');
-    writeValue(keys.EXPRESTION.key, '');
-    writeValue(keys.HANDBOOK_EXPRESTION.key, '');
-    writeValue(keys.HANDBOOK_STORY.key, '');
+    insertNewEntryRows(id, prefix);
     isDirty = true;
     rebuildOptions();
     entryId = id;
@@ -381,7 +613,7 @@
       root.style.setProperty('--dark-bg-color', '#5f6181');
       return;
     }
-    root.style.setProperty('--bg-color', '#fdc689');
+    root.style.setProperty('--bg-color', '#f9c68b');
     root.style.setProperty('--dark-bg-color', '#8f431b');
   });
 
@@ -390,6 +622,7 @@
     if (!result) return;
 
     csvText = result.content;
+    textModeScrollPosition = null;
     const parsed = parseCsv(result.content);
     csvHeaders = parsed.headers;
     csvRows = normalizeRowsByKey(parsed.headers, parsed.rows);
@@ -527,37 +760,85 @@
   onConfirmCloseDiscard={confirmCloseDiscard}
   onConfirmCloseCancel={confirmCloseCancel}
 >
-  {#if viewMode === 'almanac'}
-    <AlmanacModeScene
-      {category}
-      {lang}
-      entryOptions={entryOptions}
-      entryId={entryId}
-      entryPrefix={entryPrefix}
-      addDisabled={!csvHeaders.length}
-      {previewSide}
-      previewFields={getPreviewFields()}
-      {fields}
-      onSelectEntry={(id, prefix) => {
-        entryId = id;
-        entryPrefix = prefix;
-        selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
-      }}
-      onOpenAddDialog={openAddDialog}
-      onCategoryChange={changeCategory}
-      onLangChange={(next) => (lang = next)}
-      onFieldChange={setField}
-      addDialogOpen={addDialogOpen}
-      addDialogCategoryLabel={FILTERS[category].label}
-      addDialogId={addDialogId}
-      addDialogIdPlaceholder={getAddDialogIdPlaceholder(category)}
-      addDialogKeys={addDialogId.trim() ? getAddDialogKeys() : null}
-      canAddEntry={canAddEntry()}
-      onAddDialogIdChange={(next) => (addDialogId = next)}
-      onApplyAddEntry={applyAddEntry}
-      onCloseAddDialog={closeAddDialog}
-    />
-  {:else}
-    <TextModeScene csvText={csvText} onCsvTextChange={applyCsvText} editable={csvPath !== null} />
-  {/if}
+  <div class="main">
+    {#if viewMode === 'almanac'}
+      <div class="scene scene-almanac">
+        <AlmanacModeScene
+          {category}
+          {lang}
+          entryOptions={entryOptions}
+          entryId={entryId}
+          entryPrefix={entryPrefix}
+          addDisabled={!csvHeaders.length}
+          {previewSide}
+          previewFields={getPreviewFields()}
+          {fields}
+          onSelectEntry={(id, prefix) => {
+            entryId = id;
+            entryPrefix = prefix;
+            selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
+          }}
+          onOpenAddDialog={openAddDialog}
+          onCategoryChange={changeCategory}
+          onLangChange={(next) => (lang = next)}
+          onFieldChange={setField}
+          addDialogOpen={addDialogOpen}
+          addDialogCategoryLabel={FILTERS[category].label}
+          addDialogId={addDialogId}
+          addDialogIdPlaceholder={getAddDialogIdPlaceholder(category)}
+          addDialogKeys={addDialogId.trim() ? getAddDialogKeys() : null}
+          canAddEntry={canAddEntry()}
+          onAddDialogIdChange={(next) => (addDialogId = next)}
+          onApplyAddEntry={applyAddEntry}
+          onCloseAddDialog={closeAddDialog}
+        />
+      </div>
+    {/if}
+
+    <div class="scene scene-text {viewMode === 'text' ? 'active' : 'inactive'}">
+      <TextModeScene
+        csvText={csvText}
+        onCsvTextChange={applyCsvText}
+        editable={csvPath !== null}
+        active={viewMode === 'text'}
+        scrollPosition={textModeScrollPosition}
+        onScrollPositionChange={(next) => (textModeScrollPosition = next)}
+      />
+    </div>
+  </div>
 </AlmanacPageFrame>
+
+<style>
+  .main {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+
+  .scene {
+    position: absolute;
+    inset: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .scene-almanac {
+    z-index: 2;
+  }
+
+  .scene-text {
+    z-index: 1;
+    transition: opacity 120ms ease;
+  }
+
+  .scene-text.inactive {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .scene-text.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+</style>

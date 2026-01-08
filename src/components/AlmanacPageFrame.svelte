@@ -1,6 +1,9 @@
 <script lang="ts">
   import EditorActionBar from '@component/EditorActionBar.svelte';
+  import AboutModal from '@component/AboutModal.svelte';
   import AlmanacToolbar from '@component/AlmanacToolbar.svelte';
+  import Modal from '@component/Modal.svelte';
+  import { onMount } from 'svelte';
   import type { Snippet } from 'svelte';
   import type { LibraryCategory } from '@util/almanacTypes';
 
@@ -24,25 +27,68 @@
   };
 
   let props: Props = $props();
+  let aboutOpen = $state(false);
+
+  onMount(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const isMod = e.ctrlKey || e.metaKey;
+      if (!isMod) return;
+      if (e.altKey) return;
+      if (props.closeConfirmOpen) return;
+
+      const key = e.key.toLowerCase();
+      if (key !== 's') return;
+
+      if (e.shiftKey) {
+        if (!props.canSaveAs) return;
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch {
+        }
+        props.onSaveCsvAs();
+        return;
+      }
+
+      if (!props.canSave) return;
+      try {
+        e.preventDefault();
+        e.stopPropagation();
+      } catch {
+      }
+      props.onSaveCsv();
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  });
 </script>
 
 <div class="root {props.theme}">
-  <AlmanacToolbar category={props.category} />
+  <AlmanacToolbar category={props.category} onAbout={() => (aboutOpen = true)} />
 
   {#if props.closeConfirmOpen}
-    <div class="modal-backdrop" role="presentation">
-      <div class="modal" role="dialog" aria-modal="true" aria-label="未保存提示">
-        <div class="modal-title">编辑的内容未保存，是否保存？</div>
-        <div class="modal-actions">
-          <button type="button" class="button modal-primary" onclick={props.onConfirmCloseSave} disabled={!props.hasCsv}>
-            保存退出
-          </button>
-          <button type="button" class="button modal-danger" onclick={props.onConfirmCloseDiscard}>不保存退出</button>
-          <button type="button" class="button" onclick={props.onConfirmCloseCancel}>取消</button>
-        </div>
-      </div>
-    </div>
+    <Modal
+      open={props.closeConfirmOpen}
+      ariaLabel="未保存提示"
+      title="编辑的内容未保存，是否保存？"
+      closeOnBackdrop={false}
+      onClose={props.onConfirmCloseCancel}
+    >
+      {#snippet actions()}
+        <button type="button" class="button modal-primary" onclick={props.onConfirmCloseSave} disabled={!props.hasCsv}>
+          保存退出
+        </button>
+        <button type="button" class="button modal-danger" onclick={props.onConfirmCloseDiscard}>不保存退出</button>
+        <button type="button" class="button" onclick={props.onConfirmCloseCancel}>取消</button>
+      {/snippet}
+    </Modal>
   {/if}
+
+  <AboutModal open={aboutOpen} onClose={() => (aboutOpen = false)} />
 
   <EditorActionBar
     csvPath={props.csvPath}
@@ -70,7 +116,7 @@
   }
 
   .root.default {
-    --bg-color: #fdc689;
+    --bg-color: #f9c68b;
     --dark-bg-color: #8f431b;
   }
 
@@ -83,12 +129,17 @@
     outline: none;
   }
 
+  :global(button) {
+    color: rgba(0, 0, 0, 0.65);
+  }
+
   :global(.button) {
     height: 34px;
     padding: 0 12px;
     border-radius: 10px;
     border: 1px solid rgba(0, 0, 0, 0.18);
     background: rgba(255, 255, 255, 0.26);
+    color: rgba(0, 0, 0, 0.65);
     cursor: pointer;
     user-select: none;
     transition:
@@ -120,6 +171,7 @@
     padding: 0 12px;
     border: 0;
     background: rgba(255, 255, 255, 0.22);
+    color: rgba(0, 0, 0, 0.65);
     cursor: pointer;
     user-select: none;
     transition:
@@ -145,45 +197,11 @@
     opacity: 0.5;
     cursor: default;
   }
-
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 18px;
-    background: rgba(0, 0, 0, 0.35);
-  }
-
-  .modal {
-    width: min(520px, calc(100vw - 36px));
-    border-radius: 14px;
-    border: 1px solid rgba(0, 0, 0, 0.18);
-    background: color-mix(in srgb, var(--bg-color) 78%, white 22%);
-    padding: 14px;
-    box-sizing: border-box;
-  }
-
-  .modal-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: rgba(0, 0, 0, 0.72);
-    margin-bottom: 12px;
-  }
-
-  .modal-actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-  }
-
-  .modal-primary {
+  :global(.modal-primary) {
     background: rgba(255, 255, 255, 0.55);
   }
 
-  .modal-danger {
+  :global(.modal-danger) {
     background: color-mix(in srgb, #ff3b30 22%, rgba(255, 255, 255, 0.26));
   }
 </style>
