@@ -839,61 +839,59 @@
   onConfirmCloseCancel={confirmCloseCancel}
 >
   <div class="main">
-    {#if viewMode === 'almanac'}
-      <div class="scene scene-almanac">
-        <AlmanacModeScene
-          {category}
-          {lang}
-          entryOptions={entryOptions}
-          entryId={entryId}
-          entryPrefix={entryPrefix}
-          addDisabled={!csvHeaders.length}
-          allowSwitch={category === 'plant'}
-          roleName={getRoleNameForSkinPreview()}
-          {previewSide}
-          previewFields={getPreviewFields()}
-          fields={cardMode === 'role' ? roleFields : skinFields}
-          {cardMode}
-          skinIndex={skinIndex}
-          skinCount={skinNums.length}
-          previewSettingsOpen={previewSettingsOpen}
-          onClosePreviewSettings={closePreviewSettings}
-          onCardModeChange={(next) => {
-            cardMode = next;
-            if (next === 'skin') {
-              rebuildSkinNums();
-              syncSkinFieldsFromCsv();
-            }
-          }}
-          onSkinIndexChange={(next) => {
-            skinIndex = Math.max(0, Math.min(next, Math.max(0, skinNums.length - 1)));
-            syncSkinFieldsFromCsv();
-          }}
-          onAddSkin={() => addSkin()}
-          onSelectEntry={(id, prefix) => {
-            entryId = id;
-            entryPrefix = prefix;
-            selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
-            logEntryData(id, prefix);
+    <div class="scene scene-almanac {viewMode === 'almanac' ? 'active' : 'inactive'}">
+      <AlmanacModeScene
+        {category}
+        {lang}
+        entryOptions={entryOptions}
+        entryId={entryId}
+        entryPrefix={entryPrefix}
+        addDisabled={!csvHeaders.length}
+        allowSwitch={category === 'plant'}
+        roleName={getRoleNameForSkinPreview()}
+        {previewSide}
+        previewFields={getPreviewFields()}
+        fields={cardMode === 'role' ? roleFields : skinFields}
+        {cardMode}
+        skinIndex={skinIndex}
+        skinCount={skinNums.length}
+        previewSettingsOpen={previewSettingsOpen}
+        onClosePreviewSettings={closePreviewSettings}
+        onCardModeChange={(next) => {
+          cardMode = next;
+          if (next === 'skin') {
             rebuildSkinNums();
             syncSkinFieldsFromCsv();
-          }}
-          onOpenAddDialog={openAddDialog}
-          onCategoryChange={changeCategory}
-          onLangChange={(next) => (lang = next)}
-          onFieldChange={setField}
-          addDialogOpen={addDialogOpen}
-          addDialogCategoryLabel={FILTERS[category].label}
-          addDialogId={addDialogId}
-          addDialogIdPlaceholder={getAddDialogIdPlaceholder(category)}
-          addDialogKeys={addDialogId.trim() ? getAddDialogKeys() : null}
-          canAddEntry={canAddEntry()}
-          onAddDialogIdChange={(next) => (addDialogId = next)}
-          onApplyAddEntry={applyAddEntry}
-          onCloseAddDialog={closeAddDialog}
-        />
-      </div>
-    {/if}
+          }
+        }}
+        onSkinIndexChange={(next) => {
+          skinIndex = Math.max(0, Math.min(next, Math.max(0, skinNums.length - 1)));
+          syncSkinFieldsFromCsv();
+        }}
+        onAddSkin={() => addSkin()}
+        onSelectEntry={(id, prefix) => {
+          entryId = id;
+          entryPrefix = prefix;
+          selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
+          logEntryData(id, prefix);
+          rebuildSkinNums();
+          syncSkinFieldsFromCsv();
+        }}
+        onOpenAddDialog={openAddDialog}
+        onCategoryChange={changeCategory}
+        onLangChange={(next) => (lang = next)}
+        onFieldChange={setField}
+        addDialogOpen={addDialogOpen}
+        addDialogCategoryLabel={FILTERS[category].label}
+        addDialogId={addDialogId}
+        addDialogIdPlaceholder={getAddDialogIdPlaceholder(category)}
+        addDialogKeys={addDialogId.trim() ? getAddDialogKeys() : null}
+        canAddEntry={canAddEntry()}
+        onAddDialogIdChange={(next) => (addDialogId = next)}
+        onApplyAddEntry={applyAddEntry}
+        onCloseAddDialog={closeAddDialog}
+      />
+    </div>
 
     <div class="scene scene-text {viewMode === 'text' ? 'active' : 'inactive'}">
       <TextModeScene
@@ -925,6 +923,17 @@
 
   .scene-almanac {
     z-index: 2;
+    transition: opacity 120ms ease;
+  }
+
+  .scene-almanac.inactive {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .scene-almanac.active {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .scene-text {
