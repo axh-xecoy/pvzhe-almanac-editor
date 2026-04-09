@@ -1,8 +1,10 @@
 <script lang="ts">
   import AlmanacCardPreview from '@component/AlmanacCardPreview.svelte';
+  import AlmanacCardImageEditModal from '@component/AlmanacCardImageEditModal.svelte';
   import AlmanacEditorPanel from '@component/AlmanacEditorPanel.svelte';
   import AlmanacEntrySelect from '@component/AlmanacEntrySelect.svelte';
   import Modal from '@component/Modal.svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import type { AlmanacFieldKey, LibraryCategory, LibrarySide } from '@util/almanacTypes';
 
   type AddDialogKeys = {
@@ -19,9 +21,17 @@
     entryId: string;
     entryPrefix: string;
     addDisabled: boolean;
+    allowSwitch: boolean;
+    roleName?: string;
     previewSide: LibrarySide;
-    previewFields: Record<AlmanacFieldKey, string>;
+    previewFields?: Partial<Record<AlmanacFieldKey, string>>;
     fields: Record<AlmanacFieldKey, string>;
+    cardMode: 'role' | 'skin';
+    skinIndex: number;
+    skinCount: number;
+    onCardModeChange: (next: 'role' | 'skin') => void;
+    onSkinIndexChange: (next: number) => void;
+    onAddSkin: () => void;
     onSelectEntry: (id: string, prefix: string) => void;
     onOpenAddDialog: () => void;
     onCategoryChange: (next: LibraryCategory) => void;
@@ -36,9 +46,90 @@
     onAddDialogIdChange: (next: string) => void;
     onApplyAddEntry: () => void;
     onCloseAddDialog: () => void;
+    previewSettingsOpen: boolean;
+    onClosePreviewSettings: () => void;
   };
 
   let props: Props = $props();
+
+  type CardImageEditState = {
+    cost: string;
+    cooldown: string;
+    customImageUrl: string | null;
+    hideSwitchControls: boolean;
+  };
+
+  const editStateByKey = new Map<string, CardImageEditState>();
+  let imageEditOpen = $state(false);
+  let cost = $state('NaN');
+  let cooldown = $state('NaN');
+  let customImageUrl: string | null = $state(null);
+  let hideSwitchControls = $state(false);
+  let previewRef: any = $state(null);
+  let exportError = $state<string | null>(null);
+
+  const currentEditKey = $derived.by(
+    () => `${props.entryPrefix}:${props.entryId}:${props.cardMode}:${props.skinIndex}`
+  );
+
+  $effect(() => {
+    const saved = editStateByKey.get(currentEditKey);
+    if (saved) {
+      cost = saved.cost;
+      cooldown = saved.cooldown;
+      customImageUrl = saved.customImageUrl;
+      hideSwitchControls = saved.hideSwitchControls;
+      return;
+    }
+    cost = 'NaN';
+    cooldown = 'NaN';
+    customImageUrl = null;
+    hideSwitchControls = false;
+  });
+
+  $effect(() => {
+    editStateByKey.set(currentEditKey, { cost, cooldown, customImageUrl, hideSwitchControls });
+  });
+
+  $effect(() => {
+    imageEditOpen = props.previewSettingsOpen;
+  });
+
+  function closeImageEditDialog() {
+    imageEditOpen = false;
+    props.onClosePreviewSettings();
+  }
+
+  function resetPreviewSettings() {
+    cost = 'NaN';
+    cooldown = 'NaN';
+    customImageUrl = null;
+    hideSwitchControls = false;
+  }
+
+  async function saveCurrentCanvasAsPng() {
+    exportError = null;
+    const dataUrl: string | null = previewRef?.exportPngDataUrl?.() ?? null;
+    if (!dataUrl) {
+      exportError = '导出失败：无法获取当前画面';
+      return;
+    }
+    const base64 = dataUrl.split(',')[1] ?? '';
+    if (!base64) {
+      exportError = '导出失败：图片数据为空';
+      return;
+    }
+    try {
+      await invoke<string | null>('save_png_file_as', { contentBase64: base64 });
+    } catch (e) {
+      const msg = String((e as any)?.message ?? e ?? '');
+      if (/unknown (ipc )?command/i.test(msg) || /not allowed/i.test(msg)) {
+        exportError = `导出失败：${msg}（需要重启应用后生效）`;
+        return;
+      }
+      exportError = `导出失败：${msg || '未知错误'}`;
+    }
+  }
 </script>
 
 <div class="content">
@@ -55,7 +146,23 @@
     </div>
 
     <div class="left-bottom">
-      <AlmanacCardPreview side={props.previewSide} fields={props.previewFields} />
+      <AlmanacCardPreview
+        bind:this={previewRef}
+        side={props.previewSide}
+        fields={props.previewFields}
+        allowSwitch={props.allowSwitch}
+        {hideSwitchControls}
+        {cost}
+        {cooldown}
+        {customImageUrl}
+        roleName={props.roleName}
+        cardMode={props.cardMode}
+        skinIndex={props.skinIndex}
+        skinCount={props.skinCount}
+        onCardModeChange={props.onCardModeChange}
+        onSkinIndexChange={props.onSkinIndexChange}
+        onAddSkin={props.onAddSkin}
+      />
     </div>
   </div>
 
@@ -65,11 +172,28 @@
       lang={props.lang}
       mode="almanac"
       fields={props.fields}
+      cardMode={props.cardMode}
       onCategoryChange={props.onCategoryChange}
       onLangChange={props.onLangChange}
       onFieldChange={props.onFieldChange}
     />
   </div>
+
+  <AlmanacCardImageEditModal
+    open={imageEditOpen}
+    {cost}
+    {cooldown}
+    {hideSwitchControls}
+    hasCustomImage={Boolean(customImageUrl)}
+    exportError={exportError ?? undefined}
+    onClose={closeImageEditDialog}
+    onCostChange={(next) => (cost = next)}
+    onCooldownChange={(next) => (cooldown = next)}
+    onHideSwitchControlsChange={(next) => (hideSwitchControls = next)}
+    onCustomImageChange={(next) => (customImageUrl = next)}
+    onReset={resetPreviewSettings}
+    onSaveImage={saveCurrentCanvasAsPng}
+  />
 
   {#if props.addDialogOpen}
     {#key props.category}

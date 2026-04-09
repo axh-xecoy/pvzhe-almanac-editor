@@ -7,6 +7,7 @@
     lang: 'zh' | 'en' | 'es';
     mode: 'almanac' | 'field';
     fields: Record<AlmanacFieldKey, string>;
+    cardMode: 'role' | 'skin';
     onCategoryChange: (category: LibraryCategory) => void;
     onLangChange: (lang: 'zh' | 'en' | 'es') => void;
     onFieldChange: (field: AlmanacFieldKey, value: string) => void;
@@ -68,45 +69,69 @@
           <div class="label">NAME</div>
           <div class="editor-box editor-box-small">
             <AlmanacTextEditor
-              value={props.fields.NAME}
+              value={props.fields.NAME ?? ''}
               mode={props.mode === 'almanac' ? 'almanac' : 'text'}
               onValueChange={(v: string) => props.onFieldChange('NAME', v)}
             />
           </div>
         </div>
 
-        <div class="field">
-          <div class="label">EXPRESTION</div>
-          <div class="editor-box editor-box-middle">
-            <AlmanacTextEditor
-              value={props.fields.EXPRESTION}
-              mode={props.mode === 'almanac' ? 'almanac' : 'text'}
-              onValueChange={(v: string) => props.onFieldChange('EXPRESTION', v)}
-            />
+        {#if props.cardMode === 'role'}
+          <div class="field">
+            <div class="label">EXPRESTION</div>
+            <div class="editor-box editor-box-middle">
+              <AlmanacTextEditor
+                value={props.fields.EXPRESTION ?? ''}
+                mode={props.mode === 'almanac' ? 'almanac' : 'text'}
+                onValueChange={(v: string) => props.onFieldChange('EXPRESTION', v)}
+              />
+            </div>
           </div>
-        </div>
 
-        <div class="field">
-          <div class="label">HANDBOOK_EXPRESTION</div>
-          <div class="editor-box editor-box-large">
-            <AlmanacTextEditor
-              value={props.fields.HANDBOOK_EXPRESTION}
-              mode={props.mode === 'almanac' ? 'almanac' : 'text'}
-              onValueChange={(v: string) => props.onFieldChange('HANDBOOK_EXPRESTION', v)}
-            />
+          <div class="field">
+            <div class="label">HANDBOOK_EXPRESTION</div>
+            <div class="editor-box editor-box-large">
+              <AlmanacTextEditor
+                value={props.fields.HANDBOOK_EXPRESTION ?? ''}
+                mode={props.mode === 'almanac' ? 'almanac' : 'text'}
+                onValueChange={(v: string) => props.onFieldChange('HANDBOOK_EXPRESTION', v)}
+              />
+            </div>
           </div>
-        </div>
 
-        <div class="field">
-          <div class="label">HANDBOOK_STORY</div>
-          <div class="editor-box editor-box-middle">
-            <AlmanacTextEditor
-              value={props.fields.HANDBOOK_STORY}
-              mode={props.mode === 'almanac' ? 'almanac' : 'text'}
-              onValueChange={(v: string) => props.onFieldChange('HANDBOOK_STORY', v)}
-            />
+          <div class="field">
+            <div class="label">HANDBOOK_STORY</div>
+            <div class="editor-box editor-box-middle">
+              <AlmanacTextEditor
+                value={props.fields.HANDBOOK_STORY ?? ''}
+                mode={props.mode === 'almanac' ? 'almanac' : 'text'}
+                onValueChange={(v: string) => props.onFieldChange('HANDBOOK_STORY', v)}
+              />
+            </div>
           </div>
-        </div>
+        {:else}
+          <div class="field">
+            <div class="label">ACCESS</div>
+            <div class="editor-box editor-box-middle">
+              <AlmanacTextEditor
+                value={props.fields.ACCESS ?? ''}
+                mode={props.mode === 'almanac' ? 'almanac' : 'text'}
+                onValueChange={(v: string) => props.onFieldChange('ACCESS', v)}
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="label">STORY</div>
+            <div class="editor-box editor-box-large">
+              <AlmanacTextEditor
+                value={props.fields.STORY ?? ''}
+                mode={props.mode === 'almanac' ? 'almanac' : 'text'}
+                onValueChange={(v: string) => props.onFieldChange('STORY', v)}
+              />
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   </div>

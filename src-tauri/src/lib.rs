@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::fs;
+use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
 use rfd::FileDialog;
 
@@ -55,6 +56,24 @@ async fn save_csv_file_as(content: String) -> Result<Option<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn save_png_file_as(content_base64: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = FileDialog::new().add_filter("PNG", &["png"]).save_file();
+        let Some(path) = path else {
+            return Ok(None);
+        };
+
+        let bytes = general_purpose::STANDARD
+            .decode(content_base64)
+            .map_err(|e| e.to_string())?;
+        fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        Ok(Some(path.to_string_lossy().to_string()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -63,7 +82,8 @@ pub fn run() {
             greet,
             open_csv_file,
             save_csv_file,
-            save_csv_file_as
+            save_csv_file_as,
+            save_png_file_as
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

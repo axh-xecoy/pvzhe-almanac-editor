@@ -2,12 +2,28 @@
   import AlmanacModeScene from '@component/AlmanacModeScene.svelte';
   import AlmanacPageFrame from '@component/AlmanacPageFrame.svelte';
   import TextModeScene from '@component/TextModeScene.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import type { AlmanacFieldKey, LibraryCategory, LibrarySide } from '@util/almanacTypes';
   import { stringifyCsv, parseCsv } from '@util/csvText';
   import { rebuildKeyIndex, normalizeRowsByKey, getColumnIndex, getKeyColumnIndex } from '@util/csvTable';
-  import { fromCsvStoredValue, toCsvStoredValue } from '@util/csvStoredValue';
+  import { toCsvStoredValue } from '@util/csvStoredValue';
+  import {
+    collectEntryFieldsByBase,
+    computeAddEntryInsertIndex,
+    computeEntryOptions,
+    computeEntryBaseInsertIndex,
+    findLastRowIndexByEntryBase,
+    getCsvValueByKey,
+    getEditorValueByKey,
+    getEntryBaseFromKey,
+    getEntryBaseFromSelection,
+    isBlankCsvRow,
+    insertNewEntryRows as buildNewEntryRows,
+    keyForField,
+    makeBlankRow,
+    normalizePrefix,
+  } from '@util/almanacEntry';
 
   let category: LibraryCategory = $state('plant');
   let previewSide: LibrarySide = $state('plant');
@@ -21,6 +37,7 @@
 
   let viewMode: 'almanac' | 'text' = $state('almanac');
   let textModeScrollPosition: import('@component/TextModeScene.svelte').TextScrollPosition | null = $state(null);
+  let previewSettingsOpen = $state(false);
 
   function syncCsvTextFromTable() {
     if (!csvHeaders.length) return;
@@ -43,14 +60,39 @@
   let entryPrefix = $state('');
   let entryOptions: { id: string; label: string; prefix: string }[] = $state([]);
 
-  let fields: Record<AlmanacFieldKey, string> = $state({
+  let cardMode: 'role' | 'skin' = $state('role');
+  let skinIndex = $state(0);
+  let skinNums: number[] = $state([]);
+
+  const ALL_FIELD_KEYS: AlmanacFieldKey[] = [
+    'NAME',
+    'EXPRESTION',
+    'HANDBOOK_EXPRESTION',
+    'HANDBOOK_STORY',
+    'ACCESS',
+    'STORY',
+  ];
+
+  const ROLE_FIELD_KEYS: AlmanacFieldKey[] = ['NAME', 'EXPRESTION', 'HANDBOOK_EXPRESTION', 'HANDBOOK_STORY'];
+  const SKIN_FIELD_KEYS: AlmanacFieldKey[] = ['NAME', 'ACCESS', 'STORY'];
+
+  let roleFields: Record<AlmanacFieldKey, string> = $state({
     NAME: '',
     EXPRESTION: '',
     HANDBOOK_EXPRESTION: '',
     HANDBOOK_STORY: '',
+    ACCESS: '',
+    STORY: '',
   });
 
-  const FIELD_KEYS: AlmanacFieldKey[] = ['NAME', 'EXPRESTION', 'HANDBOOK_EXPRESTION', 'HANDBOOK_STORY'];
+  let skinFields: Record<AlmanacFieldKey, string> = $state({
+    NAME: '',
+    EXPRESTION: '',
+    HANDBOOK_EXPRESTION: '',
+    HANDBOOK_STORY: '',
+    ACCESS: '',
+    STORY: '',
+  });
 
   const FILTERS: Record<
     LibraryCategory,
@@ -80,6 +122,7 @@
     if (entryId && entryPrefix) {
       selectionByCategory = { ...selectionByCategory, [category]: { id: entryId, prefix: entryPrefix } };
     }
+    if (cardMode !== 'role') cardMode = 'role';
     category = next;
   }
 
@@ -166,85 +209,16 @@
     };
   });
 
-  function normalizePrefix(prefix: string) {
-    return prefix.endsWith('_') ? prefix : `${prefix}_`;
-  }
-
   function getActivePrefixes(nextCategory: LibraryCategory) {
     return FILTERS[nextCategory].prefixes.map(normalizePrefix);
   }
 
   function getCsvValue(key: string, column: string) {
-    let rowIdx = keyToRow.get(key);
-    if (rowIdx === undefined) {
-      const trimmed = key.trim();
-      rowIdx = keyToRow.get(trimmed);
-      if (rowIdx === undefined) return key;
-    }
-
-    const colIdx =
-      column === 'zh' || column === 'en' || column === 'es'
-        ? getColumnIndex(csvHeaders, column)
-        : csvHeaders.indexOf(column);
-    if (colIdx === -1) return key;
-
-    const raw = csvRows[rowIdx]?.[colIdx] ?? '';
-    const value = raw.trim();
-    if (!value) return key; // fallback to key if empty
-    return raw;
+    return getCsvValueByKey({ key, column, headers: csvHeaders, rows: csvRows, keyToRow });
   }
 
   function getEditorValue(key: string, column: string) {
-    const value = getCsvValue(key, column);
-    if (value === key) return '';
-    return fromCsvStoredValue(value);
-  }
-
-  function getEntryBaseFromKey(key: string) {
-    for (const field of FIELD_KEYS) {
-      const suffix = `_${field}`;
-      if (!key.endsWith(suffix)) continue;
-      return `${key.slice(0, -suffix.length)}_`;
-    }
-    return null;
-  }
-
-  function findLastRowIndexByEntryBase(entryBase: string) {
-    const keyIdx = getKeyColumnIndex(csvHeaders);
-    if (keyIdx === -1) return -1;
-    for (let i = csvRows.length - 1; i >= 0; i--) {
-      const key = String(csvRows[i]?.[keyIdx] ?? '').trim();
-      if (!key) continue;
-      if (key.startsWith(entryBase)) return i;
-    }
-    return -1;
-  }
-
-  function computeEntryBaseInsertIndex(entryBase: string, lastRowIndex: number) {
-    const keyIdx = getKeyColumnIndex(csvHeaders);
-    if (keyIdx === -1) return csvRows.length;
-
-    let firstBlankIndex: number | null = null;
-    let i = Math.max(0, lastRowIndex + 1);
-    while (i < csvRows.length) {
-      const row = csvRows[i];
-      if (isBlankCsvRow(row)) {
-        if (firstBlankIndex === null) firstBlankIndex = i;
-        i++;
-        continue;
-      }
-
-      const key = String(row?.[keyIdx] ?? '').trim();
-      if (key && key.startsWith(entryBase)) {
-        firstBlankIndex = null;
-        i++;
-        continue;
-      }
-
-      break;
-    }
-
-    return firstBlankIndex ?? i;
+    return getEditorValueByKey({ key, column, headers: csvHeaders, rows: csvRows, keyToRow });
   }
 
   function getKnownCategoryPrefixForKey(key: string) {
@@ -276,11 +250,21 @@
     nextRow[keyIdx] = key;
     nextRow[colIdx] = value;
 
-    const entryBase = getEntryBaseFromKey(key);
+    const entryBase = getEntryBaseFromKey(key, ALL_FIELD_KEYS);
     if (entryBase) {
-      const lastBaseRow = findLastRowIndexByEntryBase(entryBase);
-      if (lastBaseRow !== -1) {
-        const insertIndex = computeEntryBaseInsertIndex(entryBase, lastBaseRow);
+      const basesToTry = [entryBase];
+      const parentBase = entryBase.replace(/CUSTOM_\d+_$/, '');
+      if (parentBase !== entryBase) basesToTry.push(parentBase);
+
+      for (const base of basesToTry) {
+        const lastBaseRow = findLastRowIndexByEntryBase({ headers: csvHeaders, rows: csvRows, entryBase: base });
+        if (lastBaseRow === -1) continue;
+        const insertIndex = computeEntryBaseInsertIndex({
+          headers: csvHeaders,
+          rows: csvRows,
+          entryBase: base,
+          lastRowIndex: lastBaseRow,
+        });
         csvRows = [...csvRows.slice(0, insertIndex), nextRow, ...csvRows.slice(insertIndex)];
         keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
         syncCsvTextFromTable();
@@ -290,14 +274,19 @@
 
     const categoryPrefix = getKnownCategoryPrefixForKey(key);
     if (categoryPrefix) {
-      const insertIndex = computeAddEntryInsertIndex(categoryPrefix);
+      const insertIndex = computeAddEntryInsertIndex({
+        headers: csvHeaders,
+        rows: csvRows,
+        prefix: categoryPrefix,
+        fieldKeys: ALL_FIELD_KEYS,
+      });
       const toInsert: string[][] = [];
       if (insertIndex > 0 && !isBlankCsvRow(csvRows[insertIndex - 1])) {
-        toInsert.push(makeBlankRow());
+        toInsert.push(makeBlankRow(csvHeaders.length));
       }
       toInsert.push(nextRow);
       if (insertIndex >= csvRows.length || !isBlankCsvRow(csvRows[insertIndex])) {
-        toInsert.push(makeBlankRow());
+        toInsert.push(makeBlankRow(csvHeaders.length));
       }
       csvRows = [...csvRows.slice(0, insertIndex), ...toInsert, ...csvRows.slice(insertIndex)];
       keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
@@ -309,53 +298,94 @@
     keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
     syncCsvTextFromTable();
   }
-
-  function keyForField(id: string, field: AlmanacFieldKey, prefix: string) {
-    return `${prefix}${id}_${field}`;
-  }
   function keyExists(key: string) {
     return keyToRow.has(key);
   }
 
-  const FIELD_MASK: Record<AlmanacFieldKey, number> = {
-    NAME: 1 << 0,
-    EXPRESTION: 1 << 1,
-    HANDBOOK_EXPRESTION: 1 << 2,
-    HANDBOOK_STORY: 1 << 3,
-  };
-
-  const FULL_MASK = (1 << 4) - 1;
-
-  function computeEntryOptions(nextCategory: LibraryCategory) {
-    const prefixes = getActivePrefixes(nextCategory);
-    const entries = new Map<string, { id: string; prefix: string; mask: number }>();
-    for (const key of keyToRow.keys()) {
-      for (const prefix of prefixes) {
-        if (!key.startsWith(prefix)) continue;
-        for (const field of FIELD_KEYS) {
-          const suffix = `_${field}`;
-          if (!key.endsWith(suffix)) continue;
-          const id = key.slice(prefix.length, -suffix.length);
-          if (!id) continue;
-          const entryKey = `${prefix}${id}`;
-          const prev = entries.get(entryKey);
-          const nextMask = (prev?.mask ?? 0) | FIELD_MASK[field];
-          entries.set(entryKey, { id, prefix, mask: nextMask });
-        }
-      }
+  function logEntryData(id: string, prefix: string) {
+    if (!id || !prefix) return;
+    if (!csvHeaders.length) return;
+    const entryBase = getEntryBaseFromSelection(id, prefix);
+    const entryFields = collectEntryFieldsByBase({
+      entryBase,
+      lang,
+      headers: csvHeaders,
+      rows: csvRows,
+      keyToRow,
+    });
+    const roleFields: Record<string, string> = {};
+    for (const field of ROLE_FIELD_KEYS) {
+      roleFields[field] = entryFields[`${entryBase}${field}`] ?? '';
     }
 
-    const list = Array.from(entries.values()).filter((e) => e.mask === FULL_MASK);
+    const skinsByNum = new Map<number, Record<string, string>>();
+    for (const [key, value] of Object.entries(entryFields)) {
+      if (!key.startsWith(entryBase)) continue;
+      const rest = key.slice(entryBase.length);
+      const m = /^CUSTOM_(\d+)_(.+)$/.exec(rest);
+      if (!m) continue;
+      const idx = Number.parseInt(m[1] ?? '', 10);
+      if (!Number.isFinite(idx)) continue;
+      const field = m[2] ?? '';
+      const next = skinsByNum.get(idx) ?? {};
+      next[field] = value;
+      skinsByNum.set(idx, next);
+    }
 
-    return list.map(({ id, prefix }) => {
-      const key = keyForField(id, 'NAME', prefix);
-      const name = getCsvValue(key, lang);
-      return { id, prefix, label: name === key ? id : name };
+    const skins = Array.from(skinsByNum.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([index, fields]) => ({ index, entryBase: `${entryBase}CUSTOM_${index}_`, fields }));
+
+    console.log('[pvzHE] Almanac entry selected (role)', {
+      category,
+      lang,
+      id,
+      prefix,
+      entryBase,
+      fields: roleFields,
+    });
+    console.log('[pvzHE] Almanac entry selected (skins)', {
+      category,
+      lang,
+      id,
+      prefix,
+      entryBase,
+      skins,
     });
   }
 
+  function rebuildSkinNums() {
+    const prevNumsLen = untrack(() => skinNums.length);
+    const prevIndex = untrack(() => skinIndex);
+    if (!entryId || !entryPrefix) {
+      if (prevNumsLen) skinNums = [];
+      if (prevIndex !== 0) skinIndex = 0;
+      return;
+    }
+
+    const entryBase = getEntryBaseFromSelection(entryId, entryPrefix);
+    const nums = new Set<number>();
+    for (const key of keyToRow.keys()) {
+      if (!key.startsWith(entryBase)) continue;
+      const rest = key.slice(entryBase.length);
+      const m = /^CUSTOM_(\d+)_(NAME|ACCESS|STORY)$/.exec(rest);
+      if (!m) continue;
+      const idx = Number.parseInt(m[1] ?? '', 10);
+      if (!Number.isFinite(idx)) continue;
+      nums.add(idx);
+    }
+    const next = Array.from(nums).sort((a, b) => a - b);
+    skinNums = next;
+    if (next.length === 0) {
+      skinIndex = 0;
+      return;
+    }
+    skinIndex = Math.max(0, Math.min(prevIndex, next.length - 1));
+  }
+
   function rebuildOptions() {
-    const options = computeEntryOptions(category);
+    const prefixes = getActivePrefixes(category);
+    const options = computeEntryOptions({ prefixes, fieldKeys: ROLE_FIELD_KEYS, lang, headers: csvHeaders, rows: csvRows, keyToRow });
 
     entryOptions = options;
 
@@ -375,7 +405,7 @@
     }
   }
 
-  function syncFieldsFromCsv() {
+  function syncRoleFieldsFromCsv() {
     if (!entryId || !entryPrefix) {
       return;
     }
@@ -385,28 +415,126 @@
       EXPRESTION: '',
       HANDBOOK_EXPRESTION: '',
       HANDBOOK_STORY: '',
+      ACCESS: '',
+      STORY: '',
     };
-    for (const field of FIELD_KEYS) next[field] = getEditorValue(keyForField(entryId, field, entryPrefix), lang);
+    for (const field of ROLE_FIELD_KEYS) next[field] = getEditorValue(keyForField(entryId, field, entryPrefix), lang);
+    const prev = untrack(() => ({
+      NAME: roleFields.NAME,
+      EXPRESTION: roleFields.EXPRESTION,
+      HANDBOOK_EXPRESTION: roleFields.HANDBOOK_EXPRESTION,
+      HANDBOOK_STORY: roleFields.HANDBOOK_STORY,
+    }));
     if (
-      fields.NAME === next.NAME &&
-      fields.EXPRESTION === next.EXPRESTION &&
-      fields.HANDBOOK_EXPRESTION === next.HANDBOOK_EXPRESTION &&
-      fields.HANDBOOK_STORY === next.HANDBOOK_STORY
-    ) {
+      prev.NAME === next.NAME &&
+      prev.EXPRESTION === next.EXPRESTION &&
+      prev.HANDBOOK_EXPRESTION === next.HANDBOOK_EXPRESTION &&
+      prev.HANDBOOK_STORY === next.HANDBOOK_STORY
+    )
       return;
-    }
-    fields = next;
+    roleFields = next;
   }
 
-  function getPreviewFields() {
-    const out: Record<AlmanacFieldKey, string> = { ...fields };
+  function getActiveSkinNum() {
+    return untrack(() => skinNums[skinIndex] ?? 0);
+  }
+
+  function syncSkinFieldsFromCsv() {
+    if (!entryId || !entryPrefix) return;
+
+    const skinNum = getActiveSkinNum();
+    const skinId = `${entryId}_CUSTOM_${skinNum}`;
+
+    const next: Record<AlmanacFieldKey, string> = {
+      NAME: '',
+      EXPRESTION: '',
+      HANDBOOK_EXPRESTION: '',
+      HANDBOOK_STORY: '',
+      ACCESS: '',
+      STORY: '',
+    };
+
+    for (const field of SKIN_FIELD_KEYS) next[field] = getEditorValue(keyForField(skinId, field, entryPrefix), lang);
+
+    const prev = untrack(() => ({
+      NAME: skinFields.NAME,
+      ACCESS: skinFields.ACCESS,
+      STORY: skinFields.STORY,
+    }));
+    if (prev.NAME === next.NAME && prev.ACCESS === next.ACCESS && prev.STORY === next.STORY) return;
+    skinFields = next;
+  }
+
+  function getPreviewFields(): Partial<Record<AlmanacFieldKey, string>> | undefined {
+    if (cardMode === 'role') {
+      const out: Record<AlmanacFieldKey, string> = { ...roleFields };
+      if (!entryId || !entryPrefix) return out;
+      for (const field of ROLE_FIELD_KEYS) {
+        if (out[field].trim().length) continue;
+        const key = keyForField(entryId, field, entryPrefix);
+        out[field] = getCsvValue(key, lang);
+      }
+      return out;
+    }
+
+    const out: Record<AlmanacFieldKey, string> = { ...skinFields };
     if (!entryId || !entryPrefix) return out;
-    for (const field of FIELD_KEYS) {
+    if (skinNums.length === 0) {
+      if (out.NAME.trim().length || out.ACCESS.trim().length || out.STORY.trim().length) return out;
+      return undefined;
+    }
+
+    const skinNum = getActiveSkinNum();
+    const skinId = `${entryId}_CUSTOM_${skinNum}`;
+
+    for (const field of SKIN_FIELD_KEYS) {
       if (out[field].trim().length) continue;
-      const key = keyForField(entryId, field, entryPrefix);
+      const key = keyForField(skinId, field, entryPrefix);
       out[field] = getCsvValue(key, lang);
     }
     return out;
+  }
+
+  function getRoleNameForSkinPreview() {
+    const local = roleFields.NAME ?? '';
+    if (local.trim().length) return local;
+    if (!entryId || !entryPrefix) return local;
+    return getCsvValue(keyForField(entryId, 'NAME', entryPrefix), lang);
+  }
+
+  function addSkin() {
+    if (!csvHeaders.length) return;
+    if (!entryId || !entryPrefix) return;
+    if (csvPath) isDirty = true;
+
+    let nextNum = 1;
+    if (skinNums.length) nextNum = Math.max(...skinNums) + 1;
+
+    while (true) {
+      const skinId = `${entryId}_CUSTOM_${nextNum}`;
+      const exists = SKIN_FIELD_KEYS.some((field) => keyExists(keyForField(skinId, field, entryPrefix)));
+      if (!exists) break;
+      nextNum += 1;
+    }
+
+    const skinId = `${entryId}_CUSTOM_${nextNum}`;
+    for (const field of SKIN_FIELD_KEYS) {
+      writeValue(keyForField(skinId, field, entryPrefix), toCsvStoredValue(''));
+    }
+
+    const nextSkinNums = Array.from(new Set([...skinNums, nextNum])).sort((a, b) => a - b);
+    skinNums = nextSkinNums;
+    skinIndex = Math.max(0, nextSkinNums.indexOf(nextNum));
+
+    skinFields = {
+      NAME: '',
+      EXPRESTION: '',
+      HANDBOOK_EXPRESTION: '',
+      HANDBOOK_STORY: '',
+      ACCESS: '',
+      STORY: '',
+    };
+    syncSkinFieldsFromCsv();
   }
 
   function openAddDialog() {
@@ -452,103 +580,10 @@
     };
   }
 
-  function isBlankCsvRow(row: string[] | undefined) {
-    if (!row) return true;
-    for (const c of row) {
-      if (String(c ?? '').trim()) return false;
-    }
-    return true;
-  }
-
-  function makeBlankRow() {
-    return Array(csvHeaders.length).fill('');
-  }
-
-  function findLastEntryBase(prefix: string) {
-    const keyIdx = getKeyColumnIndex(csvHeaders);
-    if (keyIdx === -1) return null;
-
-    for (let i = csvRows.length - 1; i >= 0; i--) {
-      const row = csvRows[i];
-      const key = String(row?.[keyIdx] ?? '').trim();
-      if (!key) continue;
-      if (!key.startsWith(prefix)) continue;
-
-      for (const field of FIELD_KEYS) {
-        const suffix = `_${field}`;
-        if (!key.endsWith(suffix)) continue;
-        const id = key.slice(prefix.length, -suffix.length);
-        if (!id) continue;
-        return { base: `${prefix}${id}_`, rowIndex: i };
-      }
-    }
-
-    return null;
-  }
-
-  function computeAddEntryInsertIndex(prefix: string) {
-    const keyIdx = getKeyColumnIndex(csvHeaders);
-    if (keyIdx === -1) return csvRows.length;
-
-    const last = findLastEntryBase(prefix);
-    if (last) {
-      let i = last.rowIndex + 1;
-      while (i < csvRows.length) {
-        const row = csvRows[i];
-        if (isBlankCsvRow(row)) {
-          i++;
-          continue;
-        }
-        const key = String(row?.[keyIdx] ?? '').trim();
-        if (key && key.startsWith(last.base)) {
-          i++;
-          continue;
-        }
-        break;
-      }
-      return i;
-    }
-
-    for (let i = csvRows.length - 1; i >= 0; i--) {
-      const row = csvRows[i];
-      const key = String(row?.[keyIdx] ?? '').trim();
-      if (!key) continue;
-      if (!key.startsWith(prefix)) continue;
-
-      let j = i + 1;
-      while (j < csvRows.length && isBlankCsvRow(csvRows[j])) j++;
-      return j;
-    }
-
-    return csvRows.length;
-  }
-
-  function insertNewEntryRows(id: string, prefix: string) {
-    const keyIdx = getKeyColumnIndex(csvHeaders);
-    const colIdx = getColumnIndex(csvHeaders, lang);
-    if (keyIdx === -1 || colIdx === -1) return;
-
-    const insertIndex = computeAddEntryInsertIndex(prefix);
-
-    const toInsert: string[][] = [];
-
-    if (insertIndex > 0 && !isBlankCsvRow(csvRows[insertIndex - 1])) {
-      toInsert.push(makeBlankRow());
-    }
-
-    for (const field of FIELD_KEYS) {
-      const key = keyForField(id, field, prefix);
-      const row = makeBlankRow();
-      row[keyIdx] = key;
-      row[colIdx] = '';
-      toInsert.push(row);
-    }
-
-    if (insertIndex >= csvRows.length || !isBlankCsvRow(csvRows[insertIndex])) {
-      toInsert.push(makeBlankRow());
-    }
-
-    csvRows = [...csvRows.slice(0, insertIndex), ...toInsert, ...csvRows.slice(insertIndex)];
+  function applyInsertNewEntryRows(id: string, prefix: string) {
+    const nextRows = buildNewEntryRows({ id, prefix, lang, headers: csvHeaders, rows: csvRows, fieldKeys: ROLE_FIELD_KEYS });
+    if (nextRows === csvRows) return;
+    csvRows = nextRows;
     keyToRow = rebuildKeyIndex(csvHeaders, csvRows);
     syncCsvTextFromTable();
   }
@@ -568,13 +603,15 @@
     if (!canAddEntry()) return;
     const id = addDialogId.trim();
     const prefix = addDialogPrefix || getCategoryDefaultPrefix(category);
-    insertNewEntryRows(id, prefix);
+    applyInsertNewEntryRows(id, prefix);
     isDirty = true;
     rebuildOptions();
     entryId = id;
     entryPrefix = prefix;
     selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
-    syncFieldsFromCsv();
+    syncRoleFieldsFromCsv();
+    rebuildSkinNums();
+    syncSkinFieldsFromCsv();
     addDialogOpen = false;
   }
 
@@ -595,7 +632,9 @@
     csvHeaders;
     csvRows;
     keyToRow;
-    syncFieldsFromCsv();
+    syncRoleFieldsFromCsv();
+    rebuildSkinNums();
+    syncSkinFieldsFromCsv();
   });
 
   $effect(() => {
@@ -633,9 +672,23 @@
     if (keyToRow.size) {
       const categories: LibraryCategory[] = ['plant', 'zombie', 'shovel', 'mower'];
       let best = category;
-      let bestCount = computeEntryOptions(category).length;
+      let bestCount = computeEntryOptions({
+        prefixes: getActivePrefixes(category),
+        fieldKeys: ROLE_FIELD_KEYS,
+        lang,
+        headers: csvHeaders,
+        rows: csvRows,
+        keyToRow,
+      }).length;
       for (const c of categories) {
-        const count = computeEntryOptions(c).length;
+        const count = computeEntryOptions({
+          prefixes: getActivePrefixes(c),
+          fieldKeys: ROLE_FIELD_KEYS,
+          lang,
+          headers: csvHeaders,
+          rows: csvRows,
+          keyToRow,
+        }).length;
         if (count > bestCount) {
           best = c;
           bestCount = count;
@@ -652,7 +705,9 @@
       entryPrefix = entryOptions[0].prefix;
     }
 
-    syncFieldsFromCsv();
+    syncRoleFieldsFromCsv();
+    rebuildSkinNums();
+    syncSkinFieldsFromCsv();
   }
 
   async function saveCsv() {
@@ -701,10 +756,20 @@
   }
 
   function setField(field: AlmanacFieldKey, value: string) {
-    fields = { ...fields, [field]: value };
-    if (csvPath) isDirty = true;
+    if (cardMode === 'role') {
+      roleFields = { ...roleFields, [field]: value };
+      if (!entryId || !entryPrefix) return;
+      if (csvPath) isDirty = true;
+      writeValue(keyForField(entryId, field, entryPrefix), toCsvStoredValue(value));
+      return;
+    }
+
+    skinFields = { ...skinFields, [field]: value };
     if (!entryId || !entryPrefix) return;
-    writeValue(keyForField(entryId, field, entryPrefix), toCsvStoredValue(value));
+    if (csvPath) isDirty = true;
+    const skinNum = getActiveSkinNum();
+    const skinId = `${entryId}_CUSTOM_${skinNum}`;
+    writeValue(keyForField(skinId, field, entryPrefix), toCsvStoredValue(value));
   }
 
   async function confirmCloseSave() {
@@ -736,9 +801,21 @@
   function setViewMode(next: 'almanac' | 'text') {
     if (next === viewMode) return;
     viewMode = next;
+    if (next !== 'almanac') previewSettingsOpen = false;
     if (next !== 'almanac') return;
     rebuildOptions();
-    syncFieldsFromCsv();
+    syncRoleFieldsFromCsv();
+    rebuildSkinNums();
+    syncSkinFieldsFromCsv();
+  }
+
+  function openPreviewSettings() {
+    if (viewMode !== 'almanac') return;
+    previewSettingsOpen = true;
+  }
+
+  function closePreviewSettings() {
+    previewSettingsOpen = false;
   }
 
 </script>
@@ -748,6 +825,7 @@
   {category}
   {csvPath}
   {viewMode}
+  onOpenPreviewSettings={openPreviewSettings}
   closeConfirmOpen={closeConfirmOpen}
   hasCsv={csvPath !== null}
   canSave={csvPath !== null && isDirty}
@@ -770,13 +848,35 @@
           entryId={entryId}
           entryPrefix={entryPrefix}
           addDisabled={!csvHeaders.length}
+          allowSwitch={category === 'plant'}
+          roleName={getRoleNameForSkinPreview()}
           {previewSide}
           previewFields={getPreviewFields()}
-          {fields}
+          fields={cardMode === 'role' ? roleFields : skinFields}
+          {cardMode}
+          skinIndex={skinIndex}
+          skinCount={skinNums.length}
+          previewSettingsOpen={previewSettingsOpen}
+          onClosePreviewSettings={closePreviewSettings}
+          onCardModeChange={(next) => {
+            cardMode = next;
+            if (next === 'skin') {
+              rebuildSkinNums();
+              syncSkinFieldsFromCsv();
+            }
+          }}
+          onSkinIndexChange={(next) => {
+            skinIndex = Math.max(0, Math.min(next, Math.max(0, skinNums.length - 1)));
+            syncSkinFieldsFromCsv();
+          }}
+          onAddSkin={() => addSkin()}
           onSelectEntry={(id, prefix) => {
             entryId = id;
             entryPrefix = prefix;
             selectionByCategory = { ...selectionByCategory, [category]: { id, prefix } };
+            logEntryData(id, prefix);
+            rebuildSkinNums();
+            syncSkinFieldsFromCsv();
           }}
           onOpenAddDialog={openAddDialog}
           onCategoryChange={changeCategory}

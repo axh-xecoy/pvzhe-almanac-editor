@@ -8,6 +8,7 @@
     onSaveCsv: () => void;
     onSaveCsvAs: () => void;
     onSetViewMode: (next: 'almanac' | 'text') => void;
+    onOpenPreviewSettings: () => void;
   };
 
   let props: Props = $props();
@@ -15,23 +16,31 @@
 
 <div class="topbar">
   <div class="topbar-left">
-    <div class="mode-toggle" role="group" aria-label="编辑模式">
-      <button
-        type="button"
-        class="mode-toggle-item {props.viewMode === 'almanac' ? 'active' : ''}"
-        onclick={() => props.onSetViewMode('almanac')}
-        aria-pressed={props.viewMode === 'almanac'}
-      >
-        图鉴模式
-      </button>
-      <button
-        type="button"
-        class="mode-toggle-item {props.viewMode === 'text' ? 'active' : ''}"
-        onclick={() => props.onSetViewMode('text')}
-        aria-pressed={props.viewMode === 'text'}
-      >
-        文本模式
-      </button>
+    <div class="mode-group">
+      <div class="mode-toggle" role="group" aria-label="编辑模式">
+        <button
+          type="button"
+          class="mode-toggle-item {props.viewMode === 'almanac' ? 'active' : ''}"
+          onclick={() => props.onSetViewMode('almanac')}
+          aria-pressed={props.viewMode === 'almanac'}
+        >
+          图鉴模式
+        </button>
+        <button
+          type="button"
+          class="mode-toggle-item {props.viewMode === 'text' ? 'active' : ''}"
+          onclick={() => props.onSetViewMode('text')}
+          aria-pressed={props.viewMode === 'text'}
+        >
+          文本模式
+        </button>
+      </div>
+
+      {#if props.viewMode === 'almanac'}
+        <button type="button" class="settings-button" title="卡牌预览设置" onclick={props.onOpenPreviewSettings}>
+          ⚙
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -64,6 +73,12 @@
     align-items: center;
     gap: 10px;
     min-width: 0;
+  }
+
+  .mode-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .topbar-right {
@@ -109,6 +124,35 @@
   .mode-toggle-item.active {
     background: var(--dark-bg-color);
     color: white;
+  }
+
+  .settings-button {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    background: rgba(255, 255, 255, 0.14);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 22px;
+    line-height: 1;
+    color: rgba(0, 0, 0, 0.65);
+    transition:
+      background 120ms ease,
+      transform 60ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .settings-button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.22);
+  }
+
+  .settings-button:active:not(:disabled) {
+    transform: translateY(1px);
   }
 
   .path {

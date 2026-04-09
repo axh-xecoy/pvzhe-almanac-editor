@@ -12,6 +12,7 @@
     category: LibraryCategory;
     csvPath: string | null;
     viewMode: 'almanac' | 'text';
+    onOpenPreviewSettings: () => void;
     closeConfirmOpen: boolean;
     hasCsv: boolean;
     canSave: boolean;
@@ -99,6 +100,7 @@
     onSaveCsv={props.onSaveCsv}
     onSaveCsvAs={props.onSaveCsvAs}
     onSetViewMode={props.onSetViewMode}
+    onOpenPreviewSettings={props.onOpenPreviewSettings}
   />
 
   {@render props.children?.()}

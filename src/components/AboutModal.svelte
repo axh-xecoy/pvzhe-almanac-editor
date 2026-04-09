@@ -54,7 +54,7 @@
     <button type="button" class="about-card about-card-button" onclick={onAuthorClick}>
       <div class="about-row">
         <div class="about-tag">作者</div>
-        <div class="about-value about-link">AXH弦</div>
+        <div class="about-value about-link">七弦</div>
       </div>
     </button>
 

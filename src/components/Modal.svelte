@@ -16,7 +16,7 @@
   };
 
   let props: Props = $props();
-  let dialogEl: HTMLDivElement | null = null;
+  let dialogEl: HTMLDivElement | null = $state(null);
 
   function close() {
     try {

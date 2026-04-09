@@ -3,13 +3,30 @@
   import plantCardUrl from '$lib/Almanac_PlantCard.png';
   import zombieCardUrl from '$lib/Almanac_ZombieCard.png';
   import fzktFontUrl from '$lib/fzkt.ttf';
-  import { drawAlmanacCard, type AlmanacCardDrawResult, type AlmanacScrollbarRenderInfo } from '@util/drawAlmanacCard';
+  import {
+    drawAlmanacCard,
+    getAlmanacCardSwitchPosition,
+    type AlmanacCardDrawResult,
+    type AlmanacScrollbarRenderInfo,
+  } from '@util/drawAlmanacCard';
   import type { AlmanacFieldKey, LibrarySide } from '@util/almanacTypes';
 
   type Props = {
     side: LibrarySide;
     detail?: string;
     fields?: Partial<Record<AlmanacFieldKey, string>>;
+    allowSwitch: boolean;
+    hideSwitchControls?: boolean;
+    cost?: string;
+    cooldown?: string;
+    customImageUrl?: string | null;
+    roleName?: string;
+    cardMode: 'role' | 'skin';
+    skinIndex: number;
+    skinCount: number;
+    onCardModeChange: (next: 'role' | 'skin') => void;
+    onSkinIndexChange: (next: number) => void;
+    onAddSkin: () => void;
   };
 
   let props: Props = $props();
@@ -19,6 +36,13 @@
   let ratio = $state(1);
   let drawResult: AlmanacCardDrawResult | null = $state(null);
   let scrollOffsets: Partial<Record<AlmanacScrollbarRenderInfo['key'], number>> = $state({});
+  let switchPos = $derived.by(() => getAlmanacCardSwitchPosition(props.side));
+  let canPrevSkin = $derived.by(() => props.cardMode === 'skin' && props.skinCount > 0 && props.skinIndex > 0);
+  let canNextSkin = $derived.by(
+    () => props.cardMode === 'skin' && props.skinCount > 0 && props.skinIndex < props.skinCount - 1
+  );
+  let showAddSkin = $derived.by(() => props.cardMode === 'skin' && !canNextSkin);
+  let showSwitch = $derived.by(() => props.allowSwitch && !props.hideSwitchControls);
   let dragging:
     | null
     | {
@@ -98,10 +122,16 @@
       detail: props.detail,
       side: props.side,
       fields: props.fields,
+      roleName: props.roleName,
+      cardMode: props.cardMode,
+      cost: props.cost,
+      cooldown: props.cooldown,
+      customImageUrl: props.customImageUrl,
       startX: card.startX * ratio,
       startY: card.startY * ratio,
       widthRatio: card.widthRatio,
       scrollOffsets,
+      onAsyncAssetReady: queueDraw,
     });
     drawResult = r;
 
@@ -202,10 +232,26 @@
     queueDraw();
   }
 
+  export function getCanvasElement() {
+    return canvas;
+  }
+
+  export function exportPngDataUrl() {
+    if (!canvas) return null;
+    drawNow();
+    return canvas.toDataURL('image/png');
+  }
+
   $effect(() => {
     props.side;
     props.detail;
     props.fields;
+    props.cardMode;
+    props.roleName;
+    props.hideSwitchControls;
+    props.cost;
+    props.cooldown;
+    props.customImageUrl;
     if (!canvas) return;
     queueDraw();
   });
@@ -234,14 +280,67 @@
 </script>
 
 <div class="preview">
-  <canvas
-    bind:this={canvas}
-    onpointerdown={onPointerDown}
-    onpointermove={onPointerMove}
-    onpointerup={onPointerUp}
-    onpointercancel={onPointerUp}
-    onwheel={onWheel}
-  ></canvas>
+  <div class="canvas-wrap">
+    {#if showSwitch}
+      <div class="switch-wrap" style={`left:${switchPos.xOffset}px;top:${switchPos.yOffset}px;`}>
+        <div class="switch-nav" aria-label="卡牌切换">
+          <button
+            type="button"
+            class="switch-button switch-nav-button {canPrevSkin ? '' : 'hidden'}"
+            aria-label="上一个"
+            aria-hidden={!canPrevSkin}
+            disabled={!canPrevSkin}
+            onclick={() => canPrevSkin && props.onSkinIndexChange(Math.max(0, props.skinIndex - 1))}
+          >
+            &lt;
+          </button>
+
+          <div class="switch-buttons" role="group" aria-label="卡牌类型">
+            <button
+              type="button"
+              class="switch-button {props.cardMode === 'role' ? 'active' : ''}"
+              aria-pressed={props.cardMode === 'role'}
+              onclick={() => props.onCardModeChange('role')}
+            >
+              角色卡牌
+            </button>
+            <button
+              type="button"
+              class="switch-button {props.cardMode === 'skin' ? 'active' : ''}"
+              aria-pressed={props.cardMode === 'skin'}
+              onclick={() => props.onCardModeChange('skin')}
+            >
+              皮肤卡牌
+            </button>
+          </div>
+
+          <button
+            type="button"
+            class="switch-button switch-nav-button {props.cardMode === 'role' ? 'hidden' : ''}"
+            aria-label={showAddSkin ? '新增皮肤' : '下一个'}
+            aria-hidden={props.cardMode === 'role'}
+            disabled={props.cardMode === 'role'}
+            onclick={() =>
+              props.cardMode === 'skin' &&
+              (canNextSkin
+                ? props.onSkinIndexChange(Math.min(Math.max(0, props.skinCount - 1), props.skinIndex + 1))
+                : props.onAddSkin())}
+          >
+            {showAddSkin ? '+' : '>'}
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <canvas
+      bind:this={canvas}
+      onpointerdown={onPointerDown}
+      onpointermove={onPointerMove}
+      onpointerup={onPointerUp}
+      onpointercancel={onPointerUp}
+      onwheel={onWheel}
+    ></canvas>
+  </div>
 </div>
 
 <style>
@@ -252,6 +351,66 @@
     padding-left: 40px;
     padding-right: 30px;
     height: 100%;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    width: 400px;
+    height: 625px;
+  }
+
+  .switch-wrap {
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .switch-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: auto;
+  }
+
+  .switch-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .switch-button {
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    background: rgba(255, 255, 255, 0.14);
+    cursor: pointer;
+    user-select: none;
+    color: rgba(0, 0, 0, 0.65);
+    transition:
+      background 120ms ease,
+      color 120ms ease;
+  }
+
+  .switch-button:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+
+  .switch-button.active {
+    background: var(--dark-bg-color);
+    color: white;
+  }
+
+  .switch-nav-button {
+    width: 34px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .switch-nav-button.hidden {
+    visibility: hidden;
   }
 
   canvas {

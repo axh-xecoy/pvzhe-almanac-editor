@@ -10,7 +10,7 @@ type RenderArgs = {
   letterSpacing?: number;
   maxWidth?: number;
   wrap?: boolean;
-  align?: 'left' | 'center';
+  align?: 'left' | 'center' | 'right';
   render?: boolean;
 };
 
@@ -109,7 +109,11 @@ export function renderAlmanacText({
         ? typeof maxWidth === 'number' && maxWidth > 0
           ? x + (maxWidth - line.width) / 2
           : x - line.width / 2
-        : x;
+        : align === 'right'
+          ? typeof maxWidth === 'number' && maxWidth > 0
+            ? x + (maxWidth - line.width)
+            : x - line.width
+          : x;
 
     let cursorX = lineStartX;
     let remainingText = line.textCount;
