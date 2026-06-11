@@ -168,16 +168,18 @@
           </button>
         </div>
 
-        <div class="combo-list" bind:this={listEl}>
-          {#each getVisibleOptions() as opt (opt.prefix + opt.id)}
-            <button
-              type="button"
-              class="combo-option {opt.id === props.selectedId && opt.prefix === props.selectedPrefix ? 'active' : ''}"
-              onclick={() => selectOption(opt.id, opt.prefix)}
-            >
-              {opt.label}
-            </button>
-          {/each}
+        <div class="combo-list-wrap">
+          <div class="combo-list" bind:this={listEl}>
+            {#each getVisibleOptions() as opt (opt.prefix + opt.id)}
+              <button
+                type="button"
+                class="combo-option {opt.id === props.selectedId && opt.prefix === props.selectedPrefix ? 'active' : ''}"
+                onclick={() => selectOption(opt.id, opt.prefix)}
+              >
+                {opt.label}
+              </button>
+            {/each}
+          </div>
         </div>
       </div>
     {/if}
@@ -325,18 +327,37 @@
     background: color-mix(in srgb, var(--dark-bg-color) 14%, transparent);
   }
 
+  .combo-list-wrap {
+    overflow: hidden;
+    padding-right: 5px;
+  }
+
   .combo-list {
     max-height: 380px;
     overflow: auto;
-    padding: 6px;
+    padding: 6px 6px;
     box-sizing: border-box;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--dark-bg-color) 32%, transparent) transparent;
   }
 
   .combo-list::-webkit-scrollbar {
-    width: 0;
+    width: 5px;
     height: 0;
+  }
+
+  .combo-list::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 4px 0;
+  }
+
+  .combo-list::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--dark-bg-color) 32%, transparent);
+    border-radius: 10px;
+  }
+
+  .combo-list::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--dark-bg-color) 48%, transparent);
   }
 
   .combo-option {
